@@ -16,7 +16,7 @@ Web (Chrome)
 
 ## Links
 
-- Repository: `[public GitHub URL]`
+- Repository: https://github.com/2010180016y-netizen/vaultbrief
 - Live demo: https://vaultbrief-bby.pages.dev
 - Video: `[YouTube URL — under 3 minutes, English]`
 - Chrome extension (optional): `extension/` in the repo
