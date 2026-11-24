@@ -17,7 +17,7 @@ Web (Chrome)
 ## Links
 
 - Repository: `[public GitHub URL]`
-- Live demo: `[Firebase Hosting / Cloudflare Pages URL]`
+- Live demo: https://vaultbrief-bby.pages.dev
 - Video: `[YouTube URL — under 3 minutes, English]`
 - Chrome extension (optional): `extension/` in the repo
 
