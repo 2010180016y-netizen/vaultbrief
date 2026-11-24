@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "VaultBrief — brief the page you are reading",
+  "version": "1.0.0",
+  "description": "Sends the readable text of the current tab to VaultBrief, which briefs it with Gemini Nano on-device or a cloud model through Firebase AI Logic.",
+  "permissions": ["activeTab", "scripting", "storage", "sidePanel"],
+  "host_permissions": ["<all_urls>"],
+  "action": {
+    "default_title": "Brief this page with VaultBrief"
+  },
+  "side_panel": {
+    "default_path": "panel.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "minimum_chrome_version": "139"
+}

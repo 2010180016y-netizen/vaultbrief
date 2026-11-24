@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>VaultBrief</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+        background: #060a12;
+        color: #e8eefb;
+        font-size: 13px;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+      header {
+        padding: 10px 12px;
+        border-bottom: 1px solid #16233a;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      strong {
+        font-size: 13px;
+        letter-spacing: -0.01em;
+      }
+      .muted {
+        color: #8ea0bf;
+        font-size: 11.5px;
+      }
+      button {
+        font: inherit;
+        border: 0;
+        border-radius: 8px;
+        padding: 7px 11px;
+        font-weight: 600;
+        font-size: 12px;
+        background: linear-gradient(120deg, #7ff0ff, #67e8f9 40%, #9db8ff);
+        color: #04121b;
+        cursor: pointer;
+      }
+      button:disabled {
+        filter: grayscale(0.7) brightness(0.7);
+        cursor: progress;
+      }
+      input {
+        flex: 1;
+        min-width: 0;
+        background: #070d17;
+        border: 1px solid #1d2b42;
+        border-radius: 7px;
+        color: #cdd9ec;
+        padding: 6px 8px;
+        font-family: ui-monospace, monospace;
+        font-size: 11px;
+      }
+      iframe {
+        flex: 1;
+        border: 0;
+        width: 100%;
+        background: #060a12;
+      }
+      #status {
+        font-size: 11.5px;
+        color: #8ea0bf;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="row">
+        <strong>VaultBrief</strong>
+        <span id="status" class="muted">ready</span>
+        <span style="flex: 1"></span>
+        <button id="grab">Brief this page</button>
+      </div>
+      <div class="row">
+        <span class="muted" style="white-space: nowrap">App URL</span>
+        <input id="appUrl" placeholder="https://your-vaultbrief.pages.dev/" />
+      </div>
+    </header>
+    <iframe id="app" title="VaultBrief"></iframe>
+    <script src="panel.js"></script>
+  </body>
+</html>

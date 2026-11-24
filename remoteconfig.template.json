@@ -1,0 +1,14 @@
+{
+  "parameters": {
+    "sensitivity_threshold": {
+      "description": "Score (0-100) at or above which a document is treated as sensitive and kept on-device.",
+      "valueType": "NUMBER",
+      "defaultValue": { "value": "40" }
+    },
+    "cloud_model": {
+      "description": "Cloud-hosted Gemini model used when a request is routed to the cloud.",
+      "valueType": "STRING",
+      "defaultValue": { "value": "gemini-3.5-flash-lite" }
+    }
+  }
+}
