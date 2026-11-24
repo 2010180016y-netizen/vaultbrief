@@ -1,0 +1,30 @@
+name: verify
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Unit and UI tests
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: Extension contract
+        run: npm run verify:extension
+      - name: Icons are reproducible
+        run: |
+          cp -r extension/icons /tmp/icons-before
+          npm run icons
+          diff -r /tmp/icons-before extension/icons
