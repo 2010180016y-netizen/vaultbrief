@@ -6,6 +6,11 @@ import type { Brief } from "./types";
  * The on-device model gets a shorter instruction than the cloud model: same
  * output shape, less scaffolding. Keeping one schema on both sides is what
  * makes the fallback invisible to the rest of the app.
+ *
+ * Language: both prompts ask for the brief in the language of the document.
+ * Gemini Nano is created with `languages: ["en"]` (the only guaranteed option
+ * on every Chrome build), but it still summarises Korean text and answers in
+ * Korean, which is what a Korean document should get.
  */
 
 export const BRIEF_KEYS = ["title", "tldr", "points", "flags"] as const;
@@ -17,7 +22,8 @@ export function onDevicePrompt(text: string): string {
     "Brief the text below for a busy reader.",
     `Reply with JSON only, no prose and no markdown fences, shaped exactly like ${SHAPE}.`,
     "title: max 8 words. tldr: max 30 words. points: 3 to 5 short facts. flags: risks, deadlines or amounts, or [] if none.",
-    "Use only information from the text.",
+    "Use only information from the text. Write in the language of the text.",
+    "Keep any [REDACTED:...] placeholder exactly as written.",
     "",
     "TEXT:",
     text,
@@ -34,6 +40,7 @@ export function cloudPrompt(text: string): string {
     "- Points: 3 to 6 items. Each under 25 words. Prefer facts, numbers, names, dates.",
     "- Flags: risks, obligations, deadlines, amounts, or decisions required. Empty array when there are none.",
     "- Preserve any [REDACTED:...] placeholders exactly as written.",
+    "- Write the brief in the language of the document.",
     "",
     "Respond with JSON only.",
     "",
@@ -48,6 +55,7 @@ export function mergePrompt(summaries: string[]): string {
     "Merge them into a single brief of the whole document without repeating yourself.",
     `Reply with JSON only, shaped exactly like ${SHAPE}.`,
     "Points: 4 to 6 items covering the whole document. Flags: only risks or deadlines that appear in the parts.",
+    "Write in the language of the parts.",
     "",
     summaries.map((s, i) => `PART ${i + 1}:\n${s}`).join("\n\n"),
   ].join("\n");
@@ -57,19 +65,36 @@ export function mergePrompt(summaries: string[]): string {
 export const BRIEF_SCHEMA = {
   type: "object",
   properties: {
-    title: { type: "string" },
-    tldr: { type: "string" },
+    title: { type: "string", description: "At most 8 words." },
+    tldr: { type: "string", description: "One or two sentences." },
     points: { type: "array", items: { type: "string" } },
     flags: { type: "array", items: { type: "string" } },
   },
   required: ["title", "tldr", "points", "flags"],
 } as const;
 
-function asStringArray(value: unknown): string[] {
+function asStringArray(value: unknown, limit = 8): string[] {
   if (!Array.isArray(value)) return [];
   return value
     .map((item) => (typeof item === "string" ? item.trim() : ""))
-    .filter((item) => item.length > 0);
+    .filter((item) => item.length > 0)
+    .slice(0, limit);
+}
+
+function clamp(value: string, max = 400): string {
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+}
+
+function tryParse(candidate: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(candidate) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -88,30 +113,35 @@ export function parseBrief(raw: string, fallbackTitle = "Brief"): Brief {
   candidates.push(text);
 
   for (const candidate of candidates) {
-    try {
-      const parsed = JSON.parse(candidate) as Record<string, unknown>;
-      if (parsed && typeof parsed === "object") {
-        const title = typeof parsed.title === "string" && parsed.title.trim() ? parsed.title.trim() : fallbackTitle;
-        const tldr = typeof parsed.tldr === "string" ? parsed.tldr.trim() : "";
-        const points = asStringArray(parsed.points);
-        const flags = asStringArray(parsed.flags);
-        if (tldr || points.length > 0) {
-          return { title, tldr, points, flags };
-        }
-      }
-    } catch {
-      /* try the next candidate */
+    const parsed = tryParse(candidate);
+    if (!parsed) continue;
+    const title =
+      typeof parsed.title === "string" && parsed.title.trim()
+        ? clamp(parsed.title.trim(), 120)
+        : fallbackTitle;
+    const tldr = typeof parsed.tldr === "string" ? clamp(parsed.tldr.trim()) : "";
+    const points = asStringArray(parsed.points, 8).map((point) => clamp(point, 320));
+    const flags = asStringArray(parsed.flags, 6).map((flag) => clamp(flag, 320));
+    if (tldr || points.length > 0 || flags.length > 0) {
+      return { title, tldr, points, flags };
     }
+    // Valid JSON, empty content: keep the title instead of echoing raw JSON.
+    if (typeof parsed.title === "string") return { title, tldr: "", points: [], flags: [] };
   }
 
-  const sentences = text
+  const prose = text
+    .replace(/```[a-z]*/gi, " ")
+    .replace(/[{}[\]]/g, " ")
     .replace(/\s+/g, " ")
-    .split(/(?<=[.!?])\s+/)
-    .filter((s) => s.trim().length > 0);
+    .trim();
+  const sentences = prose
+    .split(/(?<=[.!?。！？])\s+/)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => sentence.length > 0);
   return {
     title: fallbackTitle,
-    tldr: sentences.slice(0, 2).join(" ") || text.slice(0, 200),
-    points: sentences.slice(2, 6).map((s) => s.trim()),
+    tldr: clamp(sentences.slice(0, 2).join(" ") || prose.slice(0, 200)),
+    points: sentences.slice(2, 6).map((sentence) => clamp(sentence, 320)),
     flags: [],
   };
 }

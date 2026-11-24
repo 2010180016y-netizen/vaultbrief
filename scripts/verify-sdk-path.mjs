@@ -47,6 +47,8 @@ check("InferenceMode values match the router strings", () => {
   for (const [key, value] of Object.entries(expected)) {
     if (InferenceMode[key] !== value) throw new Error(`${key} is ${InferenceMode[key]}, expected ${value}`);
   }
+  const keys = Object.keys(InferenceMode);
+  if (keys.length !== 4) throw new Error(`expected 4 modes, found ${keys.join(", ")}`);
   return Object.values(InferenceMode).join(", ");
 });
 
@@ -74,6 +76,18 @@ const model = getGenerativeModel(ai, {
     createOptions: {
       expectedInputs: [{ type: "text", languages: ["en"] }],
       expectedOutputs: [{ type: "text", languages: ["en"] }],
+      initialPrompts: [
+        {
+          role: "system",
+          content: [
+            {
+              type: "text",
+              value:
+                "You write very short, factual briefs as strict JSON. Never invent facts that are not in the text.",
+            },
+          ],
+        },
+      ],
     },
   },
 });

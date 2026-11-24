@@ -1,0 +1,42 @@
+{
+  "checkedAt": "2026-11-24T06:53:49.556Z",
+  "extension": "extension/",
+  "checks": [
+    {
+      "name": "manifest.json is valid MV3 JSON",
+      "ok": true,
+      "detail": "VaultBrief — brief the page you are reading 1.0.1"
+    },
+    {
+      "name": "every referenced file exists",
+      "ok": true,
+      "detail": "background.js, panel.html, icons/icon16.png, icons/icon32.png, icons/icon48.png, icons/icon128.png"
+    },
+    {
+      "name": "icons are PNGs of the declared size",
+      "ok": true,
+      "detail": "icons/icon16.png 16px, icons/icon32.png 32px, icons/icon48.png 48px, icons/icon128.png 128px"
+    },
+    {
+      "name": "panel.html is CSP safe",
+      "ok": true,
+      "detail": "3092 chars, external script only"
+    },
+    {
+      "name": "panel.js hands the document to the app with a target origin",
+      "ok": true,
+      "detail": "message + origin + load queue present"
+    },
+    {
+      "name": "background service worker opens the side panel",
+      "ok": true,
+      "detail": "openPanelOnActionClick: true"
+    },
+    {
+      "name": "permissions are the documented minimum",
+      "ok": true,
+      "detail": "activeTab, scripting, storage, sidePanel"
+    }
+  ],
+  "ok": true
+}

@@ -7,6 +7,9 @@ import type { RunReceipt } from "./types";
  * tokens consume nothing. The dollar figure is an explicit estimate at a rate
  * you can change (`CLOUD_RATE`), because published prices move and this app
  * should not pretend to know them. Token counts are exact-ish (chars / 4).
+ *
+ * Simulated runs (demo mode, no Firebase project) never produce a dollar
+ * figure: a run in which no model was called cannot have saved a bill.
  */
 
 export const CLOUD_RATE = {
@@ -18,6 +21,7 @@ export const CLOUD_RATE = {
 
 export interface LedgerSummary {
   runs: number;
+  realRuns: number;
   onDeviceRuns: number;
   cloudRuns: number;
   simulatedRuns: number;
@@ -40,6 +44,7 @@ export function estimateCost(tokensIn: number, tokensOut: number): number {
 export function summarize(runs: RunReceipt[]): LedgerSummary {
   const onDevice = runs.filter((r) => r.source === "on_device");
   const cloud = runs.filter((r) => r.source === "in_cloud");
+  const measured = runs.filter((r) => !r.simulated);
   const sum = (list: RunReceipt[], pick: (r: RunReceipt) => number) => list.reduce((total, r) => total + pick(r), 0);
   const avg = (list: RunReceipt[]) => (list.length === 0 ? 0 : Math.round(sum(list, (r) => r.latencyMs) / list.length));
 
@@ -47,14 +52,17 @@ export function summarize(runs: RunReceipt[]): LedgerSummary {
   const cloudChars = sum(runs, (r) => r.cloudChars);
   const totalChars = localChars + cloudChars;
 
-  const cloudTokens = sum(cloud, (r) => r.tokensIn + r.tokensOut);
-  const onDeviceTokens = sum(onDevice, (r) => r.tokensIn + r.tokensOut);
+  const measuredCloud = measured.filter((r) => r.source === "in_cloud");
+  const measuredDevice = measured.filter((r) => r.source === "on_device");
+  const cloudTokens = sum(measuredCloud, (r) => r.tokensIn + r.tokensOut);
+  const onDeviceTokens = sum(measuredDevice, (r) => r.tokensIn + r.tokensOut);
 
-  const billed = cloud.reduce((total, r) => total + estimateCost(r.tokensIn, r.tokensOut), 0);
-  const ifAllCloud = runs.reduce((total, r) => total + estimateCost(r.tokensIn, r.tokensOut), 0);
+  const billed = measuredCloud.reduce((total, r) => total + estimateCost(r.tokensIn, r.tokensOut), 0);
+  const ifAllCloud = measured.reduce((total, r) => total + estimateCost(r.tokensIn, r.tokensOut), 0);
 
   return {
     runs: runs.length,
+    realRuns: measured.length,
     onDeviceRuns: onDevice.length,
     cloudRuns: cloud.length,
     simulatedRuns: runs.filter((r) => r.simulated).length,
@@ -64,8 +72,8 @@ export function summarize(runs: RunReceipt[]): LedgerSummary {
     localCharShare: totalChars === 0 ? 0 : localChars / totalChars,
     cloudTokens,
     onDeviceTokens,
-    avgLatencyOnDeviceMs: avg(onDevice),
-    avgLatencyCloudMs: avg(cloud),
+    avgLatencyOnDeviceMs: avg(measuredDevice),
+    avgLatencyCloudMs: avg(measuredCloud),
     estimatedCloudCostUsd: billed,
     estimatedSavedUsd: Math.max(0, ifAllCloud - billed),
   };

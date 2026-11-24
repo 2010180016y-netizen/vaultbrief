@@ -12,12 +12,35 @@ import type { RunReceipt } from "./types";
 const KEY = "vaultbrief.ledger.v1";
 const LIMIT = 60;
 
+/** Rejects anything that is not a receipt-shaped object, so a corrupted entry cannot break the ledger maths. */
+function isReceipt(value: unknown): value is RunReceipt {
+  if (!value || typeof value !== "object") return false;
+  const r = value as Record<string, unknown>;
+  return (
+    typeof r.id === "string" &&
+    typeof r.startedAt === "string" &&
+    (r.source === "on_device" || r.source === "in_cloud") &&
+    typeof r.inputChars === "number" &&
+    typeof r.cloudChars === "number" &&
+    typeof r.stayedLocalChars === "number" &&
+    typeof r.tokensIn === "number" &&
+    typeof r.tokensOut === "number" &&
+    typeof r.latencyMs === "number" &&
+    typeof r.chunks === "number" &&
+    Array.isArray(r.notes)
+  );
+}
+
 export function loadLedger(): RunReceipt[] {
   try {
     const raw = globalThis.localStorage?.getItem(KEY);
     if (!raw) return [];
-    const parsed = JSON.parse(raw) as RunReceipt[];
-    return Array.isArray(parsed) ? parsed : [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isReceipt).slice(0, LIMIT).map((r) => ({
+      ...r,
+      model: typeof r.model === "string" ? r.model : r.source === "in_cloud" ? "cloud" : "gemini-nano",
+    }));
   } catch {
     return [];
   }
@@ -40,7 +63,7 @@ export function clearLedger(): void {
 }
 
 export interface RemoteSyncResult {
-  ok: boolean
+  ok: boolean;
   detail: string;
 }
 
@@ -52,7 +75,16 @@ export interface RemoteSyncResult {
 /** Set after the first failure so a project without Auth/Firestore is not retried on every run. */
 let unavailable: string | null = null;
 
+export function resetReceiptSync(): void {
+  unavailable = null;
+}
+
+export function receiptSyncStatus(): string | null {
+  return unavailable;
+}
+
 export async function syncReceipt(receipt: RunReceipt): Promise<RemoteSyncResult> {
+  if (receipt.simulated) return { ok: false, detail: "A simulated run is not mirrored." };
   if (unavailable) return { ok: false, detail: unavailable };
   try {
     const [{ getApps }, { getFirestore, collection, addDoc, serverTimestamp }, auth] = await Promise.all([

@@ -1,18 +1,24 @@
 {
   "name": "vaultbrief",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "VaultBrief — hybrid on-device / cloud document briefings built with Firebase AI Logic",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview --port 4173",
-    "typecheck": "tsc -b --noEmit false --pretty",
+    "typecheck": "tsc --noEmit -p tsconfig.json --pretty",
     "test": "vitest run",
-    "verify:sdk": "node scripts/verify-sdk-path.mjs"
+    "verify:extension": "node scripts/verify-extension.mjs",
+    "verify:sdk": "node scripts/verify-sdk-path.mjs",
+    "verify": "npm run typecheck && npm test && npm run build && npm run verify:extension",
+    "icons": "node scripts/make-icons.mjs"
   },
   "license": "Apache-2.0",
+  "engines": {
+    "node": ">=22"
+  },
   "dependencies": {
     "firebase": "^13.4.0",
     "react": "^19.3.1",

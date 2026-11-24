@@ -1,5 +1,12 @@
 import { useState } from "react";
-import { clearFirebaseConfig, saveAppCheck, saveFirebaseConfigPaste, type AppConfig } from "../engine/config";
+import {
+  clearAppCheck,
+  clearFirebaseConfig,
+  parseFirebaseConfigPaste,
+  saveAppCheck,
+  saveFirebaseConfigPaste,
+  type AppConfig,
+} from "../engine/config";
 
 interface Props {
   config: AppConfig;
@@ -13,21 +20,33 @@ export function SettingsPanel({ config, onChange, onClose }: Props) {
   const [debugToken, setDebugToken] = useState(config.appCheck.debugToken ?? "");
   const [note, setNote] = useState<string | null>(null);
 
+  const parsedPaste = paste.trim() ? parseFirebaseConfigPaste(paste) : null;
+  const willHaveProject = Boolean(parsedPaste?.projectId ?? config.firebase?.projectId);
+  const willHaveAppCheck = Boolean(siteKey.trim() || debugToken.trim() || config.appCheck.siteKey || config.appCheck.debugToken);
+
   const save = () => {
-    const configuredProject = config.firebase?.projectId;
-    if (paste.trim()) {
-      if (!saveFirebaseConfigPaste(paste)) {
-        setNote("That does not look like a Firebase config. Paste the object that starts with { apiKey: … }.");
-        return;
-      }
+    if (paste.trim() && !parsedPaste) {
+      setNote(
+        "That does not look like a Firebase config. Paste the object that starts with { apiKey: …, projectId: … }.",
+      );
+      return;
     }
-    if (siteKey.trim() || debugToken.trim()) {
-      saveAppCheck({ siteKey: siteKey.trim() || undefined, debugToken: debugToken.trim() || undefined });
-    }
-    if (!paste.trim() && !configuredProject) {
+    if (!willHaveProject) {
       setNote("Paste a Firebase web app config first (it contains apiKey and projectId).");
       return;
     }
+    if (!willHaveAppCheck) {
+      setNote(
+        "App Check is required for Firebase AI Logic. Add a reCAPTCHA Enterprise site key, or a debug token registered in the Firebase console, then save.",
+      );
+      return;
+    }
+
+    if (paste.trim() && !saveFirebaseConfigPaste(paste)) {
+      setNote("The config could not be stored in this browser (storage blocked?).");
+      return;
+    }
+    saveAppCheck({ siteKey: siteKey.trim() || undefined, debugToken: debugToken.trim() || undefined });
     setNote("Saved. Reloading so App Check starts with the new settings…");
     setTimeout(() => window.location.reload(), 400);
   };
@@ -38,8 +57,8 @@ export function SettingsPanel({ config, onChange, onClose }: Props) {
         <h2>Connect Firebase AI Logic</h2>
         <p>
           VaultBrief calls Gemini through Firebase AI Logic, which needs a Firebase project and App Check. The
-          config is public (it identifies the project, it authorises nothing) but it is stored in this browser
-          only, never in the repository.
+          config is public (it identifies the project, it authorises nothing) and it is stored in this browser
+          only, never in the repository. You can close this drawer and use demo mode at any time.
         </p>
 
         <div className="field-label">Firebase web app config</div>
@@ -48,7 +67,14 @@ export function SettingsPanel({ config, onChange, onClose }: Props) {
           onChange={(event) => setPaste(event.target.value)}
           placeholder={`{\n  "apiKey": "AIza…",\n  "authDomain": "your-project.firebaseapp.com",\n  "projectId": "your-project",\n  "appId": "1:1234567890:web:abc123"\n}`}
           spellCheck={false}
+          aria-label="Firebase web app config"
         />
+        {parsedPaste && (
+          <p style={{ marginTop: 6, fontSize: 11.5, color: "var(--device)" }}>
+            Parsed: project <code>{parsedPaste.projectId}</code>
+            {parsedPaste.appId ? " · web app id found" : " · no appId (optional)"}
+          </p>
+        )}
 
         <div className="field-label" style={{ marginTop: 12 }}>
           App Check · reCAPTCHA Enterprise site key (production)
@@ -59,10 +85,11 @@ export function SettingsPanel({ config, onChange, onClose }: Props) {
           onChange={(event) => setSiteKey(event.target.value)}
           placeholder="6Lc…"
           spellCheck={false}
+          aria-label="reCAPTCHA Enterprise site key"
         />
 
         <div className="field-label" style={{ marginTop: 12 }}>
-          App Check · debug token (review builds — the hackathon accepts debug tokens)
+          App Check · debug token (review builds — register it in the console first)
         </div>
         <textarea
           style={{ minHeight: 42 }}
@@ -70,6 +97,7 @@ export function SettingsPanel({ config, onChange, onClose }: Props) {
           onChange={(event) => setDebugToken(event.target.value)}
           placeholder="123a4567-b89c-12d3-e456-789012345678"
           spellCheck={false}
+          aria-label="App Check debug token"
         />
 
         <div className="drawer-actions">
@@ -80,30 +108,41 @@ export function SettingsPanel({ config, onChange, onClose }: Props) {
             className="ghost"
             onClick={() => {
               clearFirebaseConfig();
+              clearAppCheck();
               setPaste("");
-              setNote("Firebase config cleared. Reload to return to demo mode.");
-              onChange({ ...config, firebase: null });
+              setSiteKey("");
+              setDebugToken("");
+              setNote("Firebase config and App Check credentials cleared. Reload to return to demo mode.");
+              onChange({ ...config, firebase: null, appCheck: {} });
             }}
           >
-            Clear
+            Clear all
           </button>
           <button className="ghost" onClick={onClose}>
             Close
           </button>
         </div>
 
-        {note && <p style={{ marginTop: 12, color: "var(--accent)" }}>{note}</p>}
+        {note && (
+          <p style={{ marginTop: 12, color: "var(--accent)" }} role="status">
+            {note}
+          </p>
+        )}
 
         <ol className="steps">
-          <li>Create a project at <code>console.firebase.google.com</code> and add a Web app.</li>
-          <li>Copy the <code>firebaseConfig</code> object from the app settings into the box above.</li>
+          <li>
+            Create a project at <code>console.firebase.google.com</code> and add a Web app.
+          </li>
+          <li>
+            Copy the <code>firebaseConfig</code> object from the app settings into the box above.
+          </li>
           <li>
             Provision AI Logic for the project: <code>npx -y firebase-tools@latest init ailogic</code>. Without
             this step every call fails with PERMISSION_DENIED.
           </li>
           <li>
-            Security → App Check → register the web app with reCAPTCHA Enterprise, or add a debug token and paste
-            it above. Enforce App Check for Firebase AI Logic.
+            Security → App Check → register the web app with reCAPTCHA Enterprise, or register a debug token and
+            paste it above. Enforce App Check for Firebase AI Logic.
           </li>
           <li>Optionally enable Firestore + Anonymous Auth to mirror receipts; the app works without them.</li>
         </ol>

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { runBrief } from "./engine";
+import type { HybridClient } from "./hybrid";
 import { SAMPLES } from "./samples";
 import type { DeviceStatus } from "./types";
 
@@ -29,6 +30,7 @@ describe("runBrief (simulated pipeline)", () => {
     expect(outcome.result.receipt.cloudChars).toBe(0);
     expect(outcome.result.receipt.stayedLocalChars).toBe(outcome.result.receipt.inputChars);
     expect(outcome.result.receipt.simulated).toBe(true);
+    expect(outcome.result.receipt.model).toBe("gemini-nano");
     expect(outcome.result.brief.tldr.length).toBeGreaterThan(10);
   });
 
@@ -46,6 +48,7 @@ describe("runBrief (simulated pipeline)", () => {
     expect(outcome.result.receipt.cloudChars).toBe(0);
     expect(outcome.result.receipt.notes.join(" ")).toMatch(/map-reduce/);
     expect(outcome.result.brief.points.length).toBeGreaterThan(0);
+    expect(outcome.result.brief.tldr.length).toBeGreaterThan(10);
   });
 
   it("sends the long public document to the cloud", async () => {
@@ -61,6 +64,7 @@ describe("runBrief (simulated pipeline)", () => {
     expect(outcome.plan.expectedSource).toBe("in_cloud");
     expect(outcome.result.receipt.cloudChars).toBeGreaterThan(2000);
     expect(outcome.result.receipt.stayedLocalChars).toBe(0);
+    expect(outcome.result.receipt.model).toBe("gemini-3.5-flash-lite");
   });
 
   it("masks the private document when only the cloud is available", async () => {
@@ -76,6 +80,7 @@ describe("runBrief (simulated pipeline)", () => {
     expect(outcome.plan.redactBeforeSending).toBe(true);
     expect(outcome.result.receipt.redacted).toBe(true);
     expect(outcome.result.brief.tldr).not.toMatch(/okafor@mailbox/i);
+    expect(outcome.result.receipt.notes.join(" ")).toMatch(/masked copy/i);
   });
 
   it("blocks rather than uploading when masking is off and no model is local", async () => {
@@ -107,5 +112,116 @@ describe("runBrief (simulated pipeline)", () => {
     expect(r.tokensIn).toBeGreaterThan(0);
     expect(r.latencyMs).toBeGreaterThan(0);
     expect(r.notes.some((n) => n.startsWith("Simulated"))).toBe(true);
+  });
+
+  it("refuses an empty document", async () => {
+    const outcome = await runBrief({
+      ...base,
+      text: "   ",
+      policy: "auto",
+      maskingAllowed: true,
+      device: deviceReady,
+    });
+    expect(outcome.status).toBe("blocked");
+  });
+});
+
+describe("runBrief cancellation", () => {
+  it("stops before the first pass when the signal is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const outcome = await runBrief({
+      ...base,
+      text: sample("discharge"),
+      policy: "auto",
+      maskingAllowed: true,
+      device: deviceReady,
+      signal: controller.signal,
+    });
+    expect(outcome.status).toBe("cancelled");
+  });
+
+  it("stops between passes and reports how far it got", async () => {
+    const controller = new AbortController();
+    let passes = 0;
+    const client = {
+      generate: async () => {
+        passes += 1;
+        if (passes === 2) controller.abort();
+        return {
+          text: JSON.stringify({ title: "Part", tldr: "A part.", points: ["one"], flags: [] }),
+          source: "on_device" as const,
+        };
+      },
+    } as unknown as HybridClient;
+
+    const outcome = await runBrief({
+      ...base,
+      client,
+      text: sample("nda"),
+      policy: "auto",
+      maskingAllowed: true,
+      device: deviceReady,
+      signal: controller.signal,
+    });
+    expect(outcome.status).toBe("cancelled");
+    if (outcome.status !== "cancelled") return;
+    expect(outcome.reason).toMatch(/Stopped after 2 of \d+ passes/);
+  });
+});
+
+describe("runBrief with a live client", () => {
+  it("passes the Remote Config model name to every call and reports the fallback", async () => {
+    const seen: { cloudModel?: string; mode: string }[] = [];
+    const client = {
+      generate: async (args: { cloudModel?: string; mode: string }) => {
+        seen.push({ cloudModel: args.cloudModel, mode: args.mode });
+        return {
+          text: JSON.stringify({ title: "Cloud brief", tldr: "Ran in the cloud.", points: ["a"], flags: [] }),
+          source: "in_cloud" as const,
+        };
+      },
+    } as unknown as HybridClient;
+
+    const outcome = await runBrief({
+      ...base,
+      client,
+      text: "The committee approved the new park on Tuesday after a short debate.",
+      policy: "auto",
+      maskingAllowed: true,
+      device: deviceReady,
+      cloudModel: "gemini-from-remote-config",
+    });
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0].cloudModel).toBe("gemini-from-remote-config");
+    expect(seen[0].mode).toBe("prefer_on_device");
+    expect(outcome.status).toBe("ok");
+    if (outcome.status !== "ok") return;
+    expect(outcome.result.receipt.source).toBe("in_cloud");
+    expect(outcome.result.receipt.model).toBe("gemini-from-remote-config");
+    expect(outcome.result.receipt.notes.join(" ")).toMatch(/fell back/);
+  });
+
+  it("turns an AbortError from the SDK into a stopped run, not a failure", async () => {
+    const client = {
+      generate: async () => {
+        const error = new Error("The operation was aborted.");
+        error.name = "AbortError";
+        (error as Error & { code?: string }).code = "request/aborted";
+        throw error;
+      },
+    } as unknown as HybridClient;
+
+    const outcome = await runBrief({
+      ...base,
+      client,
+      text: sample("discharge"),
+      policy: "auto",
+      maskingAllowed: true,
+      device: deviceReady,
+    });
+    // The engine maps an abort, from the SDK or from a Stop press, to a stopped run.
+    expect(outcome.status).toBe("cancelled");
   });
 });

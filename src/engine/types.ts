@@ -49,6 +49,10 @@ export interface ScanResult {
   redactable: number;
   /** Characters that would be masked by `redact()`. */
   redactedChars: number;
+  /** Matched spans that redaction cannot remove (topic keywords). */
+  unmaskable: number;
+  /** Labels of the signals a masked copy would still reveal, e.g. "Health information". */
+  residual: string[];
 }
 
 export interface DeviceStatus {
@@ -67,6 +71,8 @@ export interface RoutePlan {
   expectedSource: InferenceSourceName;
   /** True when text must be masked before it may be sent to the cloud. */
   redactBeforeSending: boolean;
+  /** True when an on-device model can run right now. */
+  deviceReady: boolean;
   chunked: boolean;
   estimatedChunks: number;
   /** One sentence shown in the UI. */
@@ -102,6 +108,8 @@ export interface RunReceipt {
   tokensOut: number;
   chunks: number;
   redacted: boolean;
+  /** Model that produced the brief: the cloud model name, or gemini-nano. */
+  model: string;
   notes: string[];
 }
 

@@ -64,7 +64,7 @@ Firebase Agent Skills (`firebase-ai-logic-basics`) were used for App Check and p
 
 - A routing engine where the privacy rule is enforced in exactly one place and cannot be bypassed by a policy setting.
 - A receipt that is generated from the SDK's own answer rather than from our intent.
-- 44 tests including a jsdom run of the entire screen, plus an SDK contract check that calls `generateContent()` against the real SDK with a fake key and proves the request reaches `firebasevertexai.googleapis.com`.
+- 92 tests including a jsdom run of the entire screen, plus an SDK contract check that calls `generateContent()` against the real SDK with a fake key and proves the request reaches `firebasevertexai.googleapis.com`, and a static MV3 extension check.
 
 ## What we learned
 
@@ -83,4 +83,5 @@ Firebase AI Logic (hybrid inference), Gemini Nano, Gemini 3.5 Flash Lite, App Ch
 1. Open the live demo in Chrome 139+ desktop (on-device path) or any browser (cloud path).
 2. Press **Hospital discharge summary** → the routing console shows a device-only route and the receipt shows 0 characters sent. Without Gemini Nano the app offers the masked-copy route instead; switch **Mask identifiers before cloud** off and press *Brief this document* to see it refuse.
 3. Press **Public policy newsletter** → the cloud route; the receipt shows the characters that were sent.
-4. `npm test`, `node scripts/verify-sdk-path.mjs`.
+4. On a long private document (the NDA) press **Stop** during the map-reduce run: the brief panel reports which pass it stopped after and no receipt is written.
+5. `npm test`, `npm run verify:extension`, `node scripts/verify-sdk-path.mjs`.

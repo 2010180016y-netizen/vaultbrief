@@ -6,16 +6,25 @@ interface Props {
   scan: ScanResult | null;
   plan: RouteOutcome | null;
   ledger: RunReceipt[];
+  /** Live threshold (Remote Config can change it). */
+  threshold: number;
+  remoteError?: string;
   onClearLedger: () => void;
 }
 
-function scoreColor(score: number): string {
-  if (score >= 70) return "var(--blocked)";
-  if (score >= 40) return "var(--cloud)";
+function scoreColor(score: number, threshold: number): string {
+  if (score >= threshold) return "var(--blocked)";
+  if (score >= threshold * 0.6) return "var(--cloud)";
   return "var(--device)";
 }
 
-export function ConsolePanel({ scan, plan, ledger, onClearLedger }: Props) {
+function timeOf(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+export function ConsolePanel({ scan, plan, ledger, threshold, remoteError, onClearLedger }: Props) {
   const summary = summarize(ledger);
 
   return (
@@ -34,13 +43,16 @@ export function ConsolePanel({ scan, plan, ledger, onClearLedger }: Props) {
           ) : (
             <>
               <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                <span className="mono" style={{ fontSize: 26, fontWeight: 600, color: scoreColor(scan.score) }}>
+                <span
+                  className="mono"
+                  style={{ fontSize: 26, fontWeight: 600, color: scoreColor(scan.score, threshold) }}
+                >
                   {scan.score}
                 </span>
-                <span style={{ fontSize: 11.5, color: "var(--dim)" }}>/ 100 · threshold 40</span>
+                <span style={{ fontSize: 11.5, color: "var(--dim)" }}>/ 100 · threshold {threshold}</span>
               </div>
               <div className="meter">
-                <i style={{ width: `${scan.score}%`, background: scoreColor(scan.score) }} />
+                <i style={{ width: `${scan.score}%`, background: scoreColor(scan.score, threshold) }} />
               </div>
               <div style={{ fontSize: 11.5, color: "var(--muted)" }}>
                 {scan.hits === 0
@@ -58,6 +70,12 @@ export function ConsolePanel({ scan, plan, ledger, onClearLedger }: Props) {
                       </span>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {scan.residual.length > 0 && (
+                <div className="plan-note" style={{ marginTop: 10 }}>
+                  · Topics that masking cannot remove: {scan.residual.join(", ").toLowerCase()}.
                 </div>
               )}
             </>
@@ -89,6 +107,12 @@ export function ConsolePanel({ scan, plan, ledger, onClearLedger }: Props) {
                   · {note}
                 </div>
               ))}
+              {plan.chunked && (
+                <div className="plan-note">
+                  · {plan.estimatedChunks} pass{plan.estimatedChunks === 1 ? "" : "es"} expected.
+                </div>
+              )}
+              {remoteError && <div className="plan-note">· {remoteError}</div>}
             </>
           )}
         </div>
@@ -113,7 +137,7 @@ export function ConsolePanel({ scan, plan, ledger, onClearLedger }: Props) {
               <strong style={{ color: "var(--cloud)" }}>{summary.cloudRuns}</strong> cloud
             </span>
             <span>
-              <strong>{formatUsd(summary.estimatedSavedUsd)}</strong> est. saved
+              <strong>{summary.realRuns === 0 ? "—" : formatUsd(summary.estimatedSavedUsd)}</strong> est. saved
             </span>
           </div>
 
@@ -122,18 +146,31 @@ export function ConsolePanel({ scan, plan, ledger, onClearLedger }: Props) {
           ) : (
             <div className="ledger">
               {ledger.map((run) => (
-                <div className="ledger-row" key={run.id} title={run.notes.join(" · ")}>
+                <div
+                  className="ledger-row"
+                  key={run.id}
+                  title={`${run.notes.join(" · ") || run.model} · ${new Date(run.startedAt).toLocaleString()}`}
+                >
                   <span className={`status-dot ${run.source === "on_device" ? "ok" : "warn"}`} />
                   <span className="what">
                     {run.chunks} pass{run.chunks === 1 ? "" : "es"}
                     {run.redacted ? " · masked" : ""}
                     {run.simulated ? " · sim" : ""}
+                    {" · "}
+                    <span className="when">{timeOf(run.startedAt)}</span>
                   </span>
                   <span className="num">
                     {run.cloudChars === 0 ? "0 sent" : `${formatChars(run.cloudChars)} sent`}
                   </span>
                 </div>
               ))}
+            </div>
+          )}
+
+          {summary.simulatedRuns > 0 && (
+            <div className="plan-note" style={{ marginTop: 8 }}>
+              · {summary.simulatedRuns} simulated run{summary.simulatedRuns === 1 ? "" : "s"} excluded from
+              token and dollar totals — no model was called.
             </div>
           )}
         </div>

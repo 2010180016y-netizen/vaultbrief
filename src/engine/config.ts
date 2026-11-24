@@ -36,7 +36,7 @@ const APP_CHECK_KEY = "vaultbrief.appcheck.v1";
 
 const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env ?? {};
 
-export const DEFAULT_CLOUD_MODEL = env.VITE_CLOUD_MODEL || "gemini-3.5-flash-lite";
+export const DEFAULT_CLOUD_MODEL = env.VITE_CLOUD_MODEL?.trim() || "gemini-3.5-flash-lite";
 
 function fromEnv(): FirebaseWebConfig | null {
   const apiKey = env.VITE_FIREBASE_API_KEY;
@@ -59,12 +59,19 @@ export function parseFirebaseConfigPaste(paste: string): FirebaseWebConfig | nul
   const jsonStart = text.indexOf("{");
   const jsonEnd = text.lastIndexOf("}");
   if (jsonStart === -1 || jsonEnd <= jsonStart) return null;
-  const body = text.slice(jsonStart, jsonEnd + 1).replace(/,\s*}/g, "}");
+  // Drop trailing commas, which the console snippet never has but humans add,
+  // and quote bare keys so a `const firebaseConfig = { apiKey: "…" };` paste
+  // (the shape shown in Firebase docs) parses too.
+  const body = text
+    .slice(jsonStart, jsonEnd + 1)
+    .replace(/,\s*}/g, "}")
+    .replace(/([{,]\s*)([A-Za-z_$][\w$]*)\s*:/g, '$1"$2":');
   try {
     const parsed = JSON.parse(body) as Record<string, unknown>;
     const apiKey = String(parsed.apiKey ?? "").trim();
     const projectId = String(parsed.projectId ?? "").trim();
     if (!apiKey || !projectId) return null;
+    if (/\s/.test(projectId)) return null;
     return {
       apiKey,
       projectId,
@@ -109,13 +116,26 @@ export function clearFirebaseConfig(): void {
 
 /** App Check settings saved from the Settings drawer (debug token for local/hosted review). */
 export function saveAppCheck(patch: AppCheckConfig): AppCheckConfig {
-  const next: AppCheckConfig = { ...fromStorageAppCheck(), ...patch };
+  const merged = { ...fromStorageAppCheck(), ...patch };
+  // Pasted keys often carry a trailing newline; an empty string means "unset".
+  const next: AppCheckConfig = {
+    siteKey: merged.siteKey?.trim() || undefined,
+    debugToken: merged.debugToken?.trim() || undefined,
+  };
   try {
     globalThis.localStorage?.setItem(APP_CHECK_KEY, JSON.stringify(next));
   } catch {
     /* ignore */
   }
   return next;
+}
+
+export function clearAppCheck(): void {
+  try {
+    globalThis.localStorage?.removeItem(APP_CHECK_KEY);
+  } catch {
+    /* ignore */
+  }
 }
 
 function fromStorageAppCheck(): AppCheckConfig {

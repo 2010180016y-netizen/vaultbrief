@@ -18,6 +18,7 @@ const receipt = (over: Partial<RunReceipt>): RunReceipt => ({
   tokensOut: 100,
   chunks: 1,
   redacted: false,
+  model: "gemini-nano",
   notes: [],
   ...over,
 });
@@ -47,6 +48,17 @@ describe("parseBrief", () => {
 
   it("does not throw on broken JSON", () => {
     expect(() => parseBrief('{"title": "broken"')).not.toThrow();
+  });
+
+  it("keeps a title that arrived without content instead of echoing JSON", () => {
+    const brief = parseBrief('{"title":"Quarterly report","tldr":"","points":[],"flags":[]}');
+    expect(brief.title).toBe("Quarterly report");
+    expect(brief.tldr).toBe("");
+  });
+
+  it("strips fences from a prose answer", () => {
+    const brief = parseBrief("```\nThe plant reopened. Output is rising.\n```", "Fallback");
+    expect(brief.tldr).not.toContain("```");
   });
 });
 
@@ -79,5 +91,28 @@ describe("ledger maths", () => {
     expect(summary.runs).toBe(0);
     expect(summary.onDeviceShare).toBe(0);
     expect(summary.estimatedSavedUsd).toBe(0);
+  });
+
+  it("never bills a simulated run", () => {
+    const summary = summarize([
+      receipt({ simulated: true, tokensIn: 5000, tokensOut: 900 }),
+      receipt({ id: "r2", simulated: true, tokensIn: 5000, tokensOut: 900 }),
+    ]);
+    expect(summary.runs).toBe(2);
+    expect(summary.simulatedRuns).toBe(2);
+    expect(summary.realRuns).toBe(0);
+    expect(summary.estimatedCloudCostUsd).toBe(0);
+    expect(summary.estimatedSavedUsd).toBe(0);
+    expect(summary.onDeviceTokens).toBe(0);
+  });
+
+  it("measures only real runs when demo and live runs are mixed", () => {
+    const summary = summarize([
+      receipt({ simulated: true, source: "in_cloud", tokensIn: 100, tokensOut: 100 }),
+      receipt({ id: "r2", simulated: false, source: "in_cloud", tokensIn: 200, tokensOut: 50 }),
+    ]);
+    expect(summary.realRuns).toBe(1);
+    expect(summary.cloudTokens).toBe(250);
+    expect(summary.estimatedCloudCostUsd).toBeCloseTo(estimateCost(200, 50), 10);
   });
 });

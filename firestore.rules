@@ -1,7 +1,9 @@
 rules_version = '2';
 
 // Receipts are written by the app after each brief and are readable only by the
-// anonymous user that wrote them. Nothing else in the database is exposed.
+// anonymous user that wrote them. No document text is ever stored here: a
+// receipt holds counts (characters, tokens, passes) and short notes, nothing
+// that could identify the document's contents.
 service cloud.firestore {
   match /databases/{database}/documents {
     match /receipts/{receiptId} {
@@ -10,10 +12,49 @@ service cloud.firestore {
                     && request.resource.data.keys().hasOnly([
                          'id', 'startedAt', 'policy', 'requestedMode', 'source', 'simulated',
                          'latencyMs', 'inputChars', 'cloudChars', 'stayedLocalChars',
-                         'tokensIn', 'tokensOut', 'chunks', 'redacted', 'notes', 'uid', 'createdAt'
-                       ]);
+                         'tokensIn', 'tokensOut', 'chunks', 'redacted', 'model', 'notes',
+                         'uid', 'createdAt'
+                       ])
+                    // Shape and size limits: an anonymous client must not be able
+                    // to use this collection as free storage.
+                    && request.resource.data.id is string
+                    && request.resource.data.id.size() <= 64
+                    && request.resource.data.startedAt is string
+                    && request.resource.data.startedAt.size() <= 40
+                    && request.resource.data.model is string
+                    && request.resource.data.model.size() <= 80
+                    && request.resource.data.source in ['on_device', 'in_cloud']
+                    && request.resource.data.policy in ['auto', 'device_only', 'cloud_quality']
+                    && request.resource.data.requestedMode in [
+                         'prefer_on_device', 'only_on_device', 'prefer_in_cloud', 'only_in_cloud'
+                       ]
+                    && request.resource.data.simulated is bool
+                    && request.resource.data.redacted is bool
+                    && request.resource.data.latencyMs is int
+                    && request.resource.data.latencyMs >= 0
+                    && request.resource.data.inputChars is int
+                    && request.resource.data.inputChars >= 0
+                    && request.resource.data.inputChars <= 100000
+                    && request.resource.data.cloudChars is int
+                    && request.resource.data.cloudChars >= 0
+                    && request.resource.data.stayedLocalChars is int
+                    && request.resource.data.stayedLocalChars >= 0
+                    && request.resource.data.tokensIn is int
+                    && request.resource.data.tokensIn >= 0
+                    && request.resource.data.tokensOut is int
+                    && request.resource.data.tokensOut >= 0
+                    && request.resource.data.chunks is int
+                    && request.resource.data.chunks >= 0
+                    && request.resource.data.chunks <= 200
+                    && request.resource.data.notes is list
+                    && request.resource.data.notes.size() <= 40;
       allow read: if request.auth != null && resource.data.uid == request.auth.uid;
       allow update, delete: if false;
+    }
+
+    // Everything else is closed.
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

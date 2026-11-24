@@ -5,10 +5,12 @@ import type { DeviceStatus, Policy, Progress } from "../engine/types";
 
 interface Props {
   text: string;
+  documentTitle: string | null;
   activeSample: string | null;
   policy: Policy;
   masking: boolean;
   running: boolean;
+  cancelling: boolean;
   progress: Progress | null;
   download: number | null;
   device: DeviceStatus;
@@ -18,6 +20,7 @@ interface Props {
   onPolicy: (policy: Policy) => void;
   onMasking: (value: boolean) => void;
   onRun: () => void;
+  onCancel: () => void;
   onPrepareDevice: () => void;
 }
 
@@ -28,13 +31,16 @@ const POLICIES: { id: Policy; label: string; hint: string }[] = [
 ];
 
 const MAX_CHARS = 60000;
+const MAX_FILE_BYTES = 2_000_000;
 
 export function DocumentPanel({
   text,
+  documentTitle,
   activeSample,
   policy,
   masking,
   running,
+  cancelling,
   progress,
   download,
   device,
@@ -44,6 +50,7 @@ export function DocumentPanel({
   onPolicy,
   onMasking,
   onRun,
+  onCancel,
   onPrepareDevice,
 }: Props) {
   const [dragging, setDragging] = useState(false);
@@ -58,9 +65,18 @@ export function DocumentPanel({
       setDropNote(`${file.name}: only plain text files are read in the browser. Paste PDF or Word content instead.`);
       return;
     }
+    if (file.size > MAX_FILE_BYTES) {
+      setDropNote(`${file.name} is ${(file.size / 1_000_000).toFixed(1)} MB. VaultBrief reads up to 2 MB / 60,000 characters — paste the relevant part instead.`);
+      return;
+    }
     const content = await file.text();
-    onText(content.slice(0, MAX_CHARS));
-    setDropNote(`${file.name} · ${content.length.toLocaleString()} characters`);
+    const clipped = content.slice(0, MAX_CHARS);
+    onText(clipped);
+    setDropNote(
+      content.length > MAX_CHARS
+        ? `${file.name} · kept the first ${MAX_CHARS.toLocaleString()} of ${content.length.toLocaleString()} characters`
+        : `${file.name} · ${content.length.toLocaleString()} characters`,
+    );
   };
 
   const deviceTone =
@@ -71,24 +87,46 @@ export function DocumentPanel({
         : "bad";
 
   const canRun = text.trim().length > 0 && !running;
+  // Only offer the download when it can actually help: an "unavailable" model
+  // on this hardware will fail to install, and pretending otherwise wastes a
+  // judge's click (and a few hundred megabytes).
+  const canDownload =
+    device.supported &&
+    (device.availability === "downloadable" ||
+      device.availability === "downloading" ||
+      device.availability === "unknown");
+
+  const planLabel = plan
+    ? plan.blocked
+      ? "blocked"
+      : plan.expectedSource === "on_device"
+        ? plan.mode.replaceAll("_", " ")
+        : `${plan.mode.replaceAll("_", " ")} · ${plan.redactBeforeSending ? "masked" : "unmasked"}`
+    : "—";
 
   return (
     <>
       <section className="panel">
         <div className="panel-head">
           <h2>Document</h2>
+          {documentTitle && (
+            <span className="doc-title" title={documentTitle}>
+              {documentTitle}
+            </span>
+          )}
           <div className="spacer" />
           <span className="mono" style={{ fontSize: 11, color: "var(--dim)" }}>
             {text.length.toLocaleString()} chars
           </span>
         </div>
         <div className="panel-body">
-          <div className="samples">
+          <div className="samples" role="group" aria-label="Sample documents">
             {SAMPLES.map((sample) => (
               <button
                 key={sample.id}
                 className={`chip ${activeSample === sample.id ? "active" : ""}`}
                 title={sample.blurb}
+                aria-pressed={activeSample === sample.id}
                 onClick={() => onSample(sample.id)}
               >
                 {sample.label}
@@ -100,13 +138,14 @@ export function DocumentPanel({
             className="doc-input"
             value={text}
             spellCheck={false}
+            aria-label="Document to brief"
             placeholder="Paste a note, a contract, a medical record or a page of research…"
             onChange={(event) => onText(event.target.value.slice(0, MAX_CHARS))}
           />
 
           <div className="doc-meta">
             <span>{(text.match(/\S+/g) ?? []).length.toLocaleString()} words</span>
-            <span>{plan ? `plan: ${plan.mode.replaceAll("_", " ")}` : "plan: —"}</span>
+            <span>plan: {planLabel}</span>
           </div>
 
           <div
@@ -141,13 +180,16 @@ export function DocumentPanel({
 
           <div className="controls">
             <div>
-              <div className="field-label">Routing policy</div>
-              <div className="segmented">
+              <div className="field-label" id="policy-label">
+                Routing policy
+              </div>
+              <div className="segmented" role="group" aria-labelledby="policy-label">
                 {POLICIES.map((item) => (
                   <button
                     key={item.id}
                     className={policy === item.id ? "on" : ""}
                     title={item.hint}
+                    aria-pressed={policy === item.id}
                     onClick={() => onPolicy(item.id)}
                   >
                     {item.label}
@@ -156,7 +198,13 @@ export function DocumentPanel({
               </div>
             </div>
 
-            <button className="switch" onClick={() => onMasking(!masking)} type="button">
+            <button
+              className="switch"
+              onClick={() => onMasking(!masking)}
+              type="button"
+              role="switch"
+              aria-checked={masking}
+            >
               <span className="switch-text">
                 <strong>Mask identifiers before cloud</strong>
                 <span>Emails, numbers and card data become typed placeholders.</span>
@@ -165,16 +213,23 @@ export function DocumentPanel({
             </button>
           </div>
 
-          <button className="run" onClick={onRun} disabled={!canRun}>
-            {running ? (
-              <>
-                <span className="spin" />
-                {progress?.message ?? "Working…"}
-              </>
-            ) : (
-              "Brief this document"
+          <div className="run-row">
+            <button className="run" onClick={onRun} disabled={!canRun}>
+              {running ? (
+                <>
+                  <span className="spin" />
+                  {cancelling ? "Stopping…" : (progress?.message ?? "Working…")}
+                </>
+              ) : (
+                "Brief this document"
+              )}
+            </button>
+            {running && (
+              <button className="ghost stop" onClick={onCancel} disabled={cancelling} type="button">
+                Stop
+              </button>
             )}
-          </button>
+          </div>
         </div>
       </section>
 
@@ -200,14 +255,15 @@ export function DocumentPanel({
             </>
           )}
 
-          {device.availability === "downloadable" && download === null && (
+          {canDownload && download === null && (
             <button className="ghost" onClick={onPrepareDevice} style={{ justifySelf: "start" }}>
-              Prepare on-device model
+              {device.availability === "downloading" ? "Prepare on-device model" : "Download Gemini Nano"}
             </button>
           )}
 
           <div className="device-note" style={{ color: "var(--dim)" }}>
-            Requires Chrome 139+ on desktop with the Prompt API flag enabled.
+            Chrome 139+ on desktop with the built-in AI (Prompt API). The model downloads once, then private
+            documents never leave this device.
           </div>
         </div>
       </section>

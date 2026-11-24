@@ -52,6 +52,16 @@
         filter: grayscale(0.7) brightness(0.7);
         cursor: progress;
       }
+      button.link {
+        background: none;
+        color: #8ea0bf;
+        padding: 2px 4px;
+        font-weight: 500;
+        text-decoration: underline;
+      }
+      button.link:hover {
+        color: #e8eefb;
+      }
       input {
         flex: 1;
         min-width: 0;
@@ -73,22 +83,38 @@
         font-size: 11.5px;
         color: #8ea0bf;
       }
+      #status.err {
+        color: #ff9b9b;
+      }
+      #frameNote {
+        display: none;
+        padding: 8px 12px;
+        font-size: 11.5px;
+        color: #f0dcb8;
+        background: rgba(245, 182, 84, 0.08);
+        border-bottom: 1px solid #16233a;
+      }
     </style>
   </head>
   <body>
     <header>
       <div class="row">
         <strong>VaultBrief</strong>
-        <span id="status" class="muted">ready</span>
+        <span id="status" class="muted" role="status">starting…</span>
         <span style="flex: 1"></span>
-        <button id="grab">Brief this page</button>
+        <button id="grab" disabled>Brief this page</button>
       </div>
       <div class="row">
-        <span class="muted" style="white-space: nowrap">App URL</span>
-        <input id="appUrl" placeholder="https://your-vaultbrief.pages.dev/" />
+        <label class="muted" for="appUrl" style="white-space: nowrap">App URL</label>
+        <input id="appUrl" placeholder="https://your-vaultbrief.web.app/" spellcheck="false" />
+        <button id="open" class="link" type="button">open in tab</button>
       </div>
     </header>
-    <iframe id="app" title="VaultBrief"></iframe>
+    <div id="frameNote">
+      The app did not load inside this panel. Some hosts block being framed — press “open in tab”, then use
+      “Brief this page” there.
+    </div>
+    <iframe id="app" title="VaultBrief app"></iframe>
     <script src="panel.js"></script>
   </body>
 </html>

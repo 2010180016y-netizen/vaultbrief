@@ -3,15 +3,32 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#060a12" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <meta name="color-scheme" content="dark" />
     <title>VaultBrief — hybrid AI briefings that keep secrets on your device</title>
     <meta
       name="description"
       content="VaultBrief briefs any document with Firebase AI Logic hybrid inference: sensitive text is summarized by Gemini Nano on your device, only non-sensitive text is routed to the cloud."
     />
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b1220'/%3E%3Cpath d='M9 14h14v11H9z' fill='none' stroke='%2367e8f9' stroke-width='2.2'/%3E%3Cpath d='M12.5 14v-3.2a3.5 3.5 0 017 0V14' fill='none' stroke='%2367e8f9' stroke-width='2.2'/%3E%3C/svg%3E" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="VaultBrief — brief anything, keep what's private private" />
+    <meta
+      property="og:description"
+      content="A hybrid briefing desk: Gemini Nano on-device for private documents, Gemini in the cloud for public ones, and a receipt for every request."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b1220'/%3E%3Cpath d='M9 14h14v11H9z' fill='none' stroke='%2367e8f9' stroke-width='2.2'/%3E%3Cpath d='M12.5 14v-3.2a3.5 3.5 0 017 0V14' fill='none' stroke='%2367e8f9' stroke-width='2.2'/%3E%3C/svg%3E"
+    />
   </head>
   <body>
     <div id="root"></div>
+    <noscript>
+      VaultBrief is a client-side app: the document never leaves the browser without a receipt, but it needs
+      JavaScript to run. Enable JavaScript and reload.
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

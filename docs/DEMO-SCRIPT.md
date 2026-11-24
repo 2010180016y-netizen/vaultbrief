@@ -18,15 +18,15 @@ Target length 2:50. Everything must be visible on screen: the routing decision b
 **0:18–0:45 — Private document, on-device**
 
 - Click the **Hospital discharge summary** chip.
-- Point at the Sensitivity scan: `90/100`, Phone number, Email address, Named individual, Health information.
-- Point at the routing console: `◆ only_on_device` — "Sensitive document (90/100) → device-only inference."
+- Point at the Sensitivity scan: `100/100`, Phone number, Date of birth, Email address, Medical record / licence number, Named individual, Health information.
+- Point at the routing console: `◆ only_on_device` — "Sensitive document (100/100) → device-only inference."
 - Press **Brief this document**. Brief appears in ~1s.
 
-> "The scan runs locally — regular expressions, no model. Nine identifiers, health terms, a named patient. Score ninety out of a hundred, so the router picks device-only. Watch the receipt: ran on device, zero characters sent to the cloud."
+> "The scan runs locally — regular expressions, no model. Thirteen matches, six of them maskable identifiers, plus health terms and a named patient. Score one hundred, so the router picks device-only. Watch the receipt: ran on device, zero characters sent to the cloud."
 
 **0:45–1:05 — Proof, not a promise**
 
-- Zoom the receipt: `Ran on device · Sent to cloud 0 · Stayed local 1,539 · 2 passes`.
+- Zoom the receipt: `Ran on device · Sent to cloud 0 · Stayed local 1,482 · 1 pass`.
 - Open the device monitor note under the brief: "Long documents are briefed map-reduce style in N passes that never leave the device."
 
 > "This number is not what we asked for, it's what the SDK reports: `response.inferenceSource`. A long document is split into on-device passes and merged on the device, so a forty-page contract still never leaves the laptop."
@@ -55,7 +55,7 @@ Target length 2:50. Everything must be visible on screen: the routing decision b
 
 - `src/engine/hybrid.ts`: the single `getGenerativeModel` call with `mode`, `inCloudParams`, `onDeviceParams`.
 - `src/engine/router.ts`: the six-line invariant.
-- `npm test` output: 44 passing.
+- `npm test` output: 88 passing.
 
 > "One file touches Firebase AI Logic: App Check with limited-use tokens, device model initialisation inside the click handler, and the mode chosen by a router that's pure TypeScript and fully unit-tested. Forty-four tests, including an SDK contract check that really calls generateContent."
 

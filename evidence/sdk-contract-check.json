@@ -1,5 +1,5 @@
 {
-  "checkedAt": "2026-11-24T05:45:39.530Z",
+  "checkedAt": "2026-11-24T06:53:49.343Z",
   "sdk": "firebase/ai (firebase 13.x, node build)",
   "mode": "prefer_on_device",
   "checks": [
@@ -15,7 +15,7 @@
     }
   ],
   "generateContent": {
-    "latencyMs": 400,
+    "latencyMs": 438,
     "error": {
       "code": "fetch-error",
       "message": "AI: Error fetching from https://firebasevertexai.googleapis.com/v1beta/projects/vaultbrief-contract-check/models/gemini-3.5-flash-lite:generateContent: [400 Bad Request] API key not valid. Please pass a valid API key. [{\"@type\":\"type.googleapis.com/google.rpc.ErrorInfo\",\"reason\":\"API_KEY_INVALID\",\"domain\":\"googleapis.c"

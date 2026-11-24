@@ -9,6 +9,7 @@ interface Props {
   progress: Progress | null;
   plan: RouteOutcome | null;
   live: boolean;
+  stale: boolean;
 }
 
 function routeName(source: string) {
@@ -37,29 +38,52 @@ function briefToMarkdown(brief: Brief, receipt: RunReceipt): string {
   lines.push(
     "",
     "---",
-    `Route: ${receipt.source === "on_device" ? "on-device (Gemini Nano)" : "cloud (Gemini)"} · ${receipt.latencyMs} ms · ${receipt.chunks} pass(es)`,
+    `Route: ${receipt.source === "on_device" ? "on-device (Gemini Nano)" : `cloud (${receipt.model})`} · ${receipt.latencyMs} ms · ${receipt.chunks} pass(es)`,
     `Characters sent to the cloud: ${receipt.cloudChars.toLocaleString()} of ${receipt.inputChars.toLocaleString()}`,
     receipt.simulated ? "Simulated run: no model was called." : "Produced with Firebase AI Logic.",
   );
   return lines.join("\n");
 }
 
-export function BriefPanel({ outcome, running, progress, plan, live }: Props) {
-  const [copied, setCopied] = useState(false);
+function copyToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
+  // http origins and older browsers have no async clipboard: fall back to a
+  // hidden textarea so the button still works during a review.
+  return new Promise((resolve, reject) => {
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.setAttribute("readonly", "");
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.appendChild(area);
+    area.select();
+    try {
+      const ok = document.execCommand("copy");
+      document.body.removeChild(area);
+      ok ? resolve() : reject(new Error("copy rejected"));
+    } catch (error) {
+      document.body.removeChild(area);
+      reject(error);
+    }
+  });
+}
+
+export function BriefPanel({ outcome, running, progress, plan, live, stale }: Props) {
+  const [copied, setCopied] = useState<"idle" | "ok" | "failed">("idle");
 
   const copy = async (text: string) => {
     try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1600);
+      await copyToClipboard(text);
+      setCopied("ok");
     } catch {
-      setCopied(false);
+      setCopied("failed");
     }
+    setTimeout(() => setCopied("idle"), 2000);
   };
 
   if (running) {
     return (
-      <section className="panel">
+      <section className="panel" aria-busy>
         <div className="panel-head">
           <h2>Brief</h2>
           <div className="spacer" />
@@ -69,7 +93,7 @@ export function BriefPanel({ outcome, running, progress, plan, live }: Props) {
               : "working"}
           </span>
         </div>
-        <div className="panel-body">
+        <div className="panel-body" aria-live="polite">
           <div style={{ fontSize: 13.5, color: "var(--muted)", marginBottom: 12 }}>{progress?.message}</div>
           <div className="progress">
             <i
@@ -99,8 +123,9 @@ export function BriefPanel({ outcome, running, progress, plan, live }: Props) {
         </div>
         <div className="brief-empty">
           <strong>Nothing briefed yet</strong>
-          Pick a sample on the left and press “Brief this document”. The routing console explains where the
-          text will run before you press anything.
+          Pick a sample on the left — or paste your own document — and press “Brief this document”. The routing
+          console explains where the text will run before you press anything. The private samples are held
+          on-device (or masked); the public newsletter is the one that goes to the cloud.
         </div>
       </section>
     );
@@ -115,8 +140,12 @@ export function BriefPanel({ outcome, running, progress, plan, live }: Props) {
         <h2>Brief</h2>
         <div className="spacer" />
         {brief && receipt && (
-          <button className="ghost" style={{ padding: "5px 10px" }} onClick={() => copy(briefToMarkdown(brief, receipt))}>
-            {copied ? "Copied" : "Copy markdown"}
+          <button
+            className="ghost"
+            style={{ padding: "5px 10px" }}
+            onClick={() => copy(briefToMarkdown(brief, receipt))}
+          >
+            {copied === "ok" ? "Copied" : copied === "failed" ? "Copy blocked" : "Copy markdown"}
           </button>
         )}
       </div>
@@ -124,13 +153,25 @@ export function BriefPanel({ outcome, running, progress, plan, live }: Props) {
       <div className="route-line">
         {receipt && <SourcePill source={receipt.source} />}
         {outcome.status === "blocked" && <span className="pill blocked">⛔ Held back</span>}
+        {outcome.status === "cancelled" && <span className="pill plain">■ Stopped</span>}
         {outcome.status === "error" && <span className="pill blocked">✕ Failed</span>}
         {receipt && <span>{receipt.latencyMs.toLocaleString()} ms</span>}
-        {receipt && <span>· {receipt.chunks} pass{receipt.chunks === 1 ? "" : "es"}</span>}
+        {receipt && (
+          <span>
+            · {receipt.chunks} pass{receipt.chunks === 1 ? "" : "es"}
+          </span>
+        )}
+        {receipt && <span className="mono">· {receipt.model}</span>}
         {receipt?.redacted && <span className="pill plain">masked copy</span>}
         {receipt?.simulated && <span className="pill plain">simulated</span>}
         {!live && !receipt && <span className="pill plain">demo mode</span>}
       </div>
+
+      {stale && (
+        <div className="stale-note" role="status">
+          The document changed after this brief was produced. Press “Brief this document” to refresh it.
+        </div>
+      )}
 
       <div className="panel-body">
         {outcome.status === "blocked" && (
@@ -145,6 +186,16 @@ export function BriefPanel({ outcome, running, progress, plan, live }: Props) {
           </div>
         )}
 
+        {outcome.status === "cancelled" && (
+          <div className="stopped-box">
+            <h3>Stopped</h3>
+            <p>{outcome.reason}</p>
+            <p style={{ color: "var(--muted)" }}>
+              No receipt was written for a run that produced no brief. Anything already sent is billed as usual.
+            </p>
+          </div>
+        )}
+
         {outcome.status === "error" && (
           <div className="blocked-box">
             <h3>The model call did not complete</h3>
@@ -156,7 +207,7 @@ export function BriefPanel({ outcome, running, progress, plan, live }: Props) {
         {brief && receipt && (
           <>
             <h3 className="brief-title">{brief.title}</h3>
-            <p className="brief-tldr">{brief.tldr}</p>
+            {brief.tldr && <p className="brief-tldr">{brief.tldr}</p>}
 
             {brief.points.length > 0 && (
               <>
@@ -217,8 +268,8 @@ export function BriefPanel({ outcome, running, progress, plan, live }: Props) {
                   <p key={note}>{note}</p>
                 ))}
                 <p>
-                  Routing policy: {receipt.policy.replace("_", " ")} · requested mode:{" "}
-                  {receipt.requestedMode.replaceAll("_", " ")}
+                  Routing policy: {receipt.policy.replaceAll("_", " ")} · requested mode:{" "}
+                  {receipt.requestedMode.replaceAll("_", " ")} · model: {receipt.model}
                 </p>
               </div>
             </div>

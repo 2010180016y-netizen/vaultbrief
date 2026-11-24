@@ -26,6 +26,7 @@ describe("router", () => {
     expect(outcome.expectedSource).toBe("on_device");
     expect(outcome.redactBeforeSending).toBe(false);
     expect(outcome.sensitive).toBe(true);
+    expect(outcome.deviceReady).toBe(true);
   });
 
   it("masks a sensitive document only when it has to reach the cloud", () => {
@@ -71,5 +72,49 @@ describe("router", () => {
     expect(outcome.mode).toBe("only_on_device");
     expect(outcome.chunked).toBe(true);
     expect(outcome.estimatedChunks).toBeGreaterThan(1);
+  });
+});
+
+describe("router edge cases", () => {
+  it("refuses an empty document instead of producing an empty brief", () => {
+    const outcome = route("   \n\n ");
+    expect(outcome.blocked).toBe(true);
+    expect(outcome.reason).toMatch(/no text/i);
+  });
+
+  it("holds back a keyword-only sensitive document when there is nothing to mask", () => {
+    // Health + finance vocabulary, no identifier that redaction could remove.
+    const text = "진단명: 급성 위염. 처방 내역: 판토프라졸. 급여 정산 요청.";
+    const outcome = route(text, { deviceReady: false });
+    expect(outcome.sensitive).toBe(true);
+    expect(outcome.blocked).toBe(true);
+    expect(outcome.notes.join(" ")).toMatch(/Cloud quality/);
+  });
+
+  it("still lets an explicit cloud-quality policy send that document, with a warning", () => {
+    const text = "진단명: 급성 위염. 처방 내역: 판토프라졸. 급여 정산 요청.";
+    const outcome = route(text, { deviceReady: false, policy: "cloud_quality" });
+    expect(outcome.blocked).toBe(false);
+    expect(outcome.redactBeforeSending).toBe(true);
+    expect(outcome.notes.join(" ")).toMatch(/no maskable identifier/);
+  });
+
+  it("applies a Remote Config threshold override", () => {
+    const text = "Write to jane@example.com"; // 14 points on its own
+    expect(route(text).sensitive).toBe(false);
+    expect(route(text, { threshold: 12 }).sensitive).toBe(true);
+    // Values outside 1..100 are clamped rather than disabling the scan.
+    expect(route(text, { threshold: 0 }).sensitive).toBe(true);
+    expect(route(text, { threshold: 100 }).sensitive).toBe(false);
+  });
+
+  it("explains how to install the on-device model instead of a generic failure", () => {
+    const outcome = route(privateDoc, { deviceReady: false, deviceAvailability: "downloadable" });
+    expect(outcome.notes.join(" ")).toMatch(/Download Gemini Nano/);
+  });
+
+  it("says what a masked copy still reveals", () => {
+    const outcome = route(privateDoc, { deviceReady: false });
+    expect(outcome.notes.join(" ")).toMatch(/Health information/);
   });
 });

@@ -15,12 +15,21 @@ import type { InferenceModeName, InferenceSourceName } from "./types";
 export interface GenerateArgs {
   prompt: string;
   mode: InferenceModeName;
+  /** Cloud model name for this call (Remote Config can change it at runtime). */
+  cloudModel?: string;
+  /** Cancels the HTTP request; the model call rejects with an abort error. */
+  signal?: AbortSignal;
+  /** Per-request timeout in milliseconds. */
+  timeoutMs?: number;
 }
 
 export interface GenerateOutcome {
   text: string;
   source: InferenceSourceName;
 }
+
+/** Default per-request ceiling. The SDK default is 180 s; that is too long for a UI with a Stop button. */
+export const REQUEST_TIMEOUT_MS = 90_000;
 
 export class HybridError extends Error {
   constructor(
@@ -46,9 +55,17 @@ type FirebaseModules = {
   GoogleAIBackend: new () => unknown;
 };
 
+interface SingleRequestOptionsLike {
+  signal?: AbortSignal;
+  timeout?: number;
+}
+
 interface GenerativeModelLike {
   initializeDeviceModel: (onProgress?: (value: number) => void) => Promise<void>;
-  generateContent: (prompt: string) => Promise<{
+  generateContent: (
+    prompt: string,
+    options?: SingleRequestOptionsLike,
+  ) => Promise<{
     response: { text: () => string; inferenceSource?: InferenceSourceName };
   }>;
 }
@@ -79,14 +96,73 @@ async function loadSdk(): Promise<HybridModules> {
   };
 }
 
+export interface HybridModelParams {
+  mode: InferenceModeName;
+  inCloudParams: {
+    model: string;
+    generationConfig: {
+      temperature: number;
+      maxOutputTokens: number;
+      responseMimeType: string;
+      responseJsonSchema: typeof BRIEF_SCHEMA;
+    };
+  };
+  onDeviceParams: {
+    createOptions: {
+      expectedInputs: { type: string; languages: string[] }[];
+      expectedOutputs: { type: string; languages: string[] }[];
+      initialPrompts: { role: string; content: { type: string; value: string }[] }[];
+    };
+  };
+}
+
+/**
+ * The exact parameters handed to `getGenerativeModel`, as a pure function so the
+ * tests and the contract check can inspect them without a Firebase project.
+ * `mode` is filled with the SDK's own value by the client before the call.
+ */
+export function hybridParams(mode: InferenceModeName, cloudModel: string): HybridModelParams {
+  return {
+    mode,
+    inCloudParams: {
+      model: cloudModel,
+      generationConfig: {
+        temperature: 0.2,
+        maxOutputTokens: 900,
+        responseMimeType: "application/json",
+        responseJsonSchema: BRIEF_SCHEMA,
+      },
+    },
+    onDeviceParams: {
+      createOptions: {
+        expectedInputs: [{ type: "text", languages: ["en"] }],
+        expectedOutputs: [{ type: "text", languages: ["en"] }],
+        initialPrompts: [
+          {
+            role: "system",
+            content: [
+              {
+                type: "text",
+                value:
+                  "You write very short, factual briefs as strict JSON. Never invent facts that are not in the text.",
+              },
+            ],
+          },
+        ],
+      },
+    },
+  };
+}
+
 export class HybridClient {
-  private models = new Map<InferenceModeName, GenerativeModelLike>();
+  /** Model objects are cached per (mode, cloud model): the cloud model name is runtime configurable. */
+  private models = new Map<string, GenerativeModelLike>();
   private deviceReady = false;
 
   private constructor(
     private readonly sdk: HybridModules,
     private readonly ai: unknown,
-    private readonly cloudModel: string,
+    private readonly defaultCloudModel: string,
   ) {}
 
   static async connect(config: AppConfig): Promise<HybridClient> {
@@ -131,10 +207,20 @@ export class HybridClient {
               messagingSenderId: appConfig.messagingSenderId,
             });
 
-      sdk.initializeAppCheck(app, {
-        provider: new sdk.ReCaptchaEnterpriseProvider(config.appCheck.siteKey ?? "debug-provider"),
-        isTokenAutoRefreshEnabled: true,
-      });
+      try {
+        sdk.initializeAppCheck(app, {
+          // With a debug token the SDK swaps this provider for the debug
+          // provider; the site key is only used when one is configured.
+          provider: new sdk.ReCaptchaEnterpriseProvider(config.appCheck.siteKey ?? "vaultbrief-debug"),
+          isTokenAutoRefreshEnabled: true,
+        });
+      } catch (error) {
+        throw new HybridError(
+          `App Check could not start: ${(error as Error).message}`,
+          "Check the reCAPTCHA Enterprise site key, or use a registered debug token while reviewing.",
+          "config/app-check-init",
+        );
+      }
 
       const ai = sdk.getAI(app, {
         backend: new sdk.GoogleAIBackend(),
@@ -154,46 +240,33 @@ export class HybridClient {
     }
   }
 
-  private model(mode: InferenceModeName): GenerativeModelLike {
-    const existing = this.models.get(mode);
+  private model(mode: InferenceModeName, cloudModel?: string): GenerativeModelLike {
+    const modelName = (cloudModel ?? this.defaultCloudModel).trim() || this.defaultCloudModel;
+    const key = `${mode}::${modelName}`;
+    const existing = this.models.get(key);
     if (existing) return existing;
 
     const modeValue = this.sdk.InferenceMode[mode];
-    const generationConfig = {
-      temperature: 0.2,
-      maxOutputTokens: 900,
-      responseMimeType: "application/json",
-      responseJsonSchema: BRIEF_SCHEMA,
-    };
+    if (!modeValue) {
+      throw new HybridError(
+        `This build of the SDK has no inference mode “${mode}”.`,
+        "The app expects firebase 13.x. Reinstall dependencies and reload.",
+        "sdk/contract",
+      );
+    }
 
-    const model = this.sdk.getGenerativeModel(this.ai, {
-      mode: modeValue,
-      inCloudParams: {
-        model: this.cloudModel,
-        generationConfig,
-      },
-      onDeviceParams: {
-        createOptions: {
-          expectedInputs: [{ type: "text", languages: ["en"] }],
-          expectedOutputs: [{ type: "text", languages: ["en"] }],
-          initialPrompts: [
-            {
-              role: "system",
-              content: [
-                {
-                  type: "text",
-                  value:
-                    "You write very short, factual briefs as strict JSON. Never invent facts that are not in the text.",
-                },
-              ],
-            },
-          ],
-        },
-      },
-    });
+    const model = this.sdk.getGenerativeModel(
+      this.ai,
+      hybridParams(modeValue, modelName) as unknown as Record<string, unknown>,
+    );
 
-    this.models.set(mode, model);
+    this.models.set(key, model);
     return model;
+  }
+
+  /** The cloud model name this client currently uses (default, before per-call overrides). */
+  get cloudModel(): string {
+    return this.defaultCloudModel;
   }
 
   /**
@@ -204,18 +277,35 @@ export class HybridClient {
     // PREFER_ON_DEVICE is enough to obtain a model object that owns the device
     // session, regardless of the mode used for the actual request.
     const model = this.model("prefer_on_device");
-    await model.initializeDeviceModel((value) => onProgress?.(value));
-    this.deviceReady = true;
+    try {
+      await model.initializeDeviceModel((value) => onProgress?.(value));
+      this.deviceReady = true;
+    } catch (error) {
+      throw new HybridError(
+        "The on-device model could not be prepared.",
+        /user|gesture|activation/i.test((error as Error).message)
+          ? "Press the download button itself: Chrome only starts a download from a real click."
+          : "Check that Chrome 139+ is used with the Prompt API enabled, and that there is disk space for the model.",
+        "device/prepare",
+      );
+    }
   }
 
   get isDevicePrepared(): boolean {
     return this.deviceReady;
   }
 
-  async generate({ prompt, mode }: GenerateArgs): Promise<GenerateOutcome> {
-    const model = this.model(mode);
+  async generate({ prompt, mode, cloudModel, signal, timeoutMs }: GenerateArgs): Promise<GenerateOutcome> {
+    if (signal?.aborted) {
+      throw new HybridError("The request was stopped before it started.", "Nothing was sent.", "request/aborted");
+    }
+    const model = this.model(mode, cloudModel);
+    const options: SingleRequestOptionsLike = {
+      timeout: timeoutMs ?? REQUEST_TIMEOUT_MS,
+      ...(signal ? { signal } : {}),
+    };
     try {
-      const result = await model.generateContent(prompt);
+      const result = await model.generateContent(prompt, options);
       const source: InferenceSourceName =
         result.response.inferenceSource ?? (mode.includes("cloud") ? "in_cloud" : "on_device");
       return { text: result.response.text(), source };
@@ -225,10 +315,14 @@ export class HybridClient {
   }
 
   private toHybridError(error: unknown, mode: InferenceModeName): HybridError {
-    const raw = error as { code?: string; message?: string };
+    const raw = error as { code?: string; message?: string; name?: string };
     const code = raw?.code ?? "";
     const message = raw?.message ?? String(error);
+    const combined = `${code} ${message}`;
 
+    if (raw?.name === "AbortError" || /abort/i.test(combined)) {
+      return new HybridError("The request was stopped.", "The run was cancelled; anything already sent is billed as usual.", code || "request/aborted");
+    }
     if (code.includes("app-check") || /app.?check/i.test(message)) {
       return new HybridError(
         "App Check rejected this request.",
@@ -236,20 +330,38 @@ export class HybridClient {
         code,
       );
     }
-    if (/api.?key|permission|403|401/i.test(`${code} ${message}`)) {
+    if (/api.?key|permission|403|401/i.test(combined)) {
       return new HybridError(
         "Firebase refused the request.",
         "Check that the web app config belongs to a project with AI Logic enabled (firebase init ailogic) and that App Check is enforced.",
         code,
       );
     }
-    if (code.includes("quota")) {
-      return new HybridError("The Gemini API quota for this project is exhausted.", "Wait for the daily reset or switch policy to device-only.", code);
+    if (/quota|resource.?exhausted|429/i.test(combined)) {
+      return new HybridError(
+        "The Gemini API quota for this project is exhausted.",
+        "Wait for the daily reset or switch the policy to device-only.",
+        code,
+      );
     }
-    if (mode === "only_on_device" && /download|not ready|available/i.test(message)) {
+    if (/model.*(not found|does not exist)|invalid model/i.test(combined)) {
+      return new HybridError(
+        "The configured cloud model does not exist for this project.",
+        "Remote Config may point at a model this project cannot use; clear `cloud_model` or use gemini-3.5-flash-lite.",
+        code,
+      );
+    }
+    if (mode === "only_on_device" && /download|not ready|available|device/i.test(message)) {
       return new HybridError(
         "The on-device model is not ready yet.",
-        "Open the device panel and press “Prepare on-device model”, then run the brief again.",
+        "Open the device panel and press “Download Gemini Nano”, then run the brief again.",
+        code,
+      );
+    }
+    if (/timeout|deadline|504/i.test(combined)) {
+      return new HybridError(
+        "The model did not answer in time.",
+        "Try again, shorten the document, or switch the policy. Nothing is retried automatically.",
         code,
       );
     }

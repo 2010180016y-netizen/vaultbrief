@@ -51,8 +51,8 @@ Or paste the `firebaseConfig` object into the app's **Settings** drawer at runti
 
 ## 5. Optional products
 
-- **Remote Config** — upload `remoteconfig.template.json` (console → Remote Config → ⋮ → Import). `sensitivity_threshold` and `cloud_model` are read on connect; defaults are used when it is absent.
-- **Firestore + Anonymous Auth** — publish `firestore.rules`, enable Anonymous sign-in under Authentication. Receipts are then mirrored to `receipts/{id}` scoped to the anonymous user. Failures are ignored by design.
+- **Remote Config** — upload `remoteconfig.template.json` (console → Remote Config → ⋮ → Import). `sensitivity_threshold` and `cloud_model` are read on connect (with an 8 s timeout, defaults on failure) and applied to every call; the routing console shows the effective threshold.
+- **Firestore + Anonymous Auth** — publish `firestore.rules`, enable Anonymous sign-in under Authentication. Receipts are then mirrored to `receipts/{id}` scoped to the anonymous user. The rules check the shape and size of every field, and no document text is ever written. Failures are ignored by design.
 
 ## 6. Deploy
 
@@ -70,5 +70,8 @@ Any static host works too (Cloudflare Pages, Netlify, S3): `base` is relative, a
 | `PERMISSION_DENIED` on every call | AI Logic was not provisioned (`init ailogic`). |
 | `403 … must enforce Firebase App Check` | `useLimitedUseAppCheckTokens` is required for generative models — the app sets it; check App Check is enforced for AI Logic, not just registered. |
 | `App Check rejected this request` | The origin or debug token is not registered, or the token rotated. |
-| On-device never runs | Chrome < 139, flag off, or the model is still downloading; the device panel shows `availability`. |
+| On-device never runs | Chrome < 139, flag off, or the model is still downloading; the device panel shows `availability` and offers the download. |
 | `API key not valid` | The config belongs to another project, or the API key was restricted away from `firebasevertexai.googleapis.com`. |
+| `The configured cloud model does not exist` | Remote Config `cloud_model` names a model this project cannot use; clear the parameter or use `gemini-3.5-flash-lite`. |
+| `The model did not answer in time` | The 90 s per-request timeout fired, or the network stalled. The run is not retried automatically; press Stop/Brief again. |
+| Firestore: `permission-denied` on the receipt | Anonymous Auth is off, or the rules were not published. Receipts are optional; the brief still works. |

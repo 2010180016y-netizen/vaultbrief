@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Header } from "./components/Header";
 import { KpiStrip } from "./components/KpiStrip";
 import { DocumentPanel } from "./components/DocumentPanel";
@@ -10,6 +10,7 @@ import { probeDevice } from "./engine/device";
 import { planFor, runBrief, type RunOutcome } from "./engine/engine";
 import { HybridClient } from "./engine/hybrid";
 import { SAMPLES } from "./engine/samples";
+import { clampThreshold } from "./engine/router";
 import { scan } from "./engine/sensitivity";
 import { loadRemoteOverrides, type RemoteOverrides } from "./engine/remote";
 import { loadLedger, saveLedger, syncReceipt } from "./engine/store";
@@ -30,15 +31,19 @@ export default function App() {
 
   const [text, setText] = useState<string>(SAMPLES[0].text);
   const [activeSample, setActiveSample] = useState<string | null>(SAMPLES[0].id);
+  const [documentTitle, setDocumentTitle] = useState<string | null>(SAMPLES[0].label);
   const [policy, setPolicy] = useState<Policy>("auto");
   const [masking, setMasking] = useState(true);
 
   const [running, setRunning] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [progress, setProgress] = useState<Progress | null>(null);
   const [download, setDownload] = useState<number | null>(null);
   const [outcome, setOutcome] = useState<RunOutcome | null>(null);
+  const [outcomeText, setOutcomeText] = useState<string | null>(null);
   const [ledger, setLedger] = useState<RunReceipt[]>(() => loadLedger());
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -89,31 +94,42 @@ export default function App() {
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       if (event.source !== window.parent) return;
-      const data = event.data as { type?: string; text?: string };
+      // Only the extension side panel (or this same origin) may hand us a document.
+      const fromExtension = event.origin.startsWith("chrome-extension://");
+      if (!fromExtension && event.origin !== window.location.origin) return;
+      const data = event.data as { type?: string; text?: string; title?: string };
       if (data?.type !== "vaultbrief:document" || typeof data.text !== "string") return;
       setText(data.text.slice(0, 60000));
       setActiveSample(null);
+      setDocumentTitle(typeof data.title === "string" && data.title.trim() ? data.title.trim().slice(0, 200) : null);
       setOutcome(null);
+      setOutcomeText(null);
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
   }, []);
 
   const cloudModel = overrides.cloudModel ?? config.cloudModel;
+  const threshold = clampThreshold(overrides.threshold);
   const live = client !== null;
   const scanResult = useMemo(() => (text.trim() ? scan(text) : null), [text]);
   const plan = useMemo(
     () =>
       text.trim()
-        ? planFor({ text, policy, maskingAllowed: masking, device, threshold: overrides.threshold }, scanResult ?? undefined)
+        ? planFor({ text, policy, maskingAllowed: masking, device, threshold }, scanResult ?? undefined)
         : null,
-    [text, policy, masking, device, scanResult, overrides.threshold],
+    [text, policy, masking, device, scanResult, threshold],
   );
+  const stale = outcome !== null && outcomeText !== null && outcomeText !== text;
 
   const handleRun = useCallback(async () => {
     if (running || !text.trim()) return;
+    const controller = new AbortController();
+    abortRef.current = controller;
     setRunning(true);
+    setCancelling(false);
     setOutcome(null);
+    setOutcomeText(null);
     setProgress({ phase: "scan", message: "Scanning for identifiers on this device…" });
     setDownload(null);
 
@@ -130,10 +146,13 @@ export default function App() {
         device,
         client,
         cloudModel,
-        threshold: overrides.threshold,
+        threshold,
+        signal: controller.signal,
+        titleFallback: documentTitle ?? "Brief",
         onProgress: setProgress,
       });
       setOutcome(result);
+      setOutcomeText(text);
       if (result.status === "ok") {
         const receipt = result.result.receipt;
         setLedger((previous) => {
@@ -145,15 +164,23 @@ export default function App() {
       }
       probeDevice().then(setDevice);
     } finally {
+      abortRef.current = null;
       setRunning(false);
+      setCancelling(false);
       setProgress(null);
       setDownload(null);
     }
-  }, [running, text, policy, masking, device, client, cloudModel, overrides.threshold]);
+  }, [running, text, policy, masking, device, client, cloudModel, threshold, documentTitle]);
+
+  const handleCancel = useCallback(() => {
+    setCancelling(true);
+    abortRef.current?.abort();
+  }, []);
 
   const handleConfigChange = useCallback((next: AppConfig) => {
     setConfig(next);
     setOutcome(null);
+    setOutcomeText(null);
   }, []);
 
   return (
@@ -164,13 +191,14 @@ export default function App() {
         configComplete={config.missing.length === 0}
       />
 
-      {!live && (
+      {!live && !clientError && (
         <div className="banner">
           <span aria-hidden>⚠</span>
           <div>
             <strong>Demo mode — no Firebase project connected.</strong> Briefs are produced by a local
             extractive summariser so every route, masking rule and receipt can be inspected, but no model is
-            called and nothing leaves the browser. Connect a project in Settings to run the real hybrid path.
+            called and nothing leaves the browser. <strong>Press “Brief this document” to try it.</strong>{" "}
+            Connect a project in Settings to run the real hybrid path.
           </div>
         </div>
       )}
@@ -179,7 +207,7 @@ export default function App() {
         <div className="banner error">
           <span aria-hidden>✕</span>
           <div>
-            <strong>Firebase connection failed.</strong> {clientError}
+            <strong>Firebase connection failed — the app stays in demo mode.</strong> {clientError}
           </div>
         </div>
       )}
@@ -190,10 +218,12 @@ export default function App() {
         <div className="col-doc">
           <DocumentPanel
             text={text}
+            documentTitle={documentTitle}
             activeSample={activeSample}
             policy={policy}
             masking={masking}
             running={running}
+            cancelling={cancelling}
             progress={progress}
             download={download}
             device={device}
@@ -201,16 +231,20 @@ export default function App() {
             onText={(value) => {
               setText(value);
               setActiveSample(null);
+              // A pasted or dropped document has no title; do not keep the sample's.
+              setDocumentTitle(null);
             }}
             onSample={(id) => {
               const sample = SAMPLES.find((s) => s.id === id);
               if (!sample) return;
               setText(sample.text);
               setActiveSample(id);
+              setDocumentTitle(sample.label);
             }}
             onPolicy={setPolicy}
             onMasking={setMasking}
             onRun={handleRun}
+            onCancel={handleCancel}
             onPrepareDevice={async () => {
               if (!client) return;
               await client.prepareDevice((value) => setDownload(value)).catch(() => undefined);
@@ -221,7 +255,14 @@ export default function App() {
         </div>
 
         <div className="col-brief">
-          <BriefPanel outcome={outcome} running={running} progress={progress} plan={plan} live={live} />
+          <BriefPanel
+            outcome={outcome}
+            running={running}
+            progress={progress}
+            plan={plan}
+            live={live}
+            stale={stale}
+          />
         </div>
 
         <div className="col-console">
@@ -229,6 +270,8 @@ export default function App() {
             scan={scanResult}
             plan={plan}
             ledger={ledger}
+            threshold={threshold}
+            remoteError={overrides.error}
             onClearLedger={() => {
               setLedger([]);
               saveLedger([]);
