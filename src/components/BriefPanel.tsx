@@ -262,6 +262,23 @@ export function BriefPanel({ outcome, running, progress, plan, live, stale }: Pr
                     {receipt.tokensIn} / {receipt.tokensOut}
                   </div>
                 </div>
+                {receipt.pii && (
+                  <div className="receipt-cell">
+                    <div className="k">Presidio entities</div>
+                    <div className="v">
+                      {receipt.pii.entities} · {receipt.pii.validated} validated
+                    </div>
+                  </div>
+                )}
+                {receipt.local?.embedder && (
+                  <div className="receipt-cell">
+                    <div className="k">Local embeddings</div>
+                    <div className="v">
+                      {receipt.local.dedupedChunks > 0 ? `${receipt.local.dedupedChunks} dupe removed` : "clean"}
+                      {receipt.semantic ? ` · ${receipt.semantic.similarity}` : ""}
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="receipt-notes">
                 {receipt.notes.map((note) => (

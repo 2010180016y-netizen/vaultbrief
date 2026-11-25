@@ -6,15 +6,29 @@ import {
   saveAppCheck,
   saveFirebaseConfigPaste,
   type AppConfig,
+  type EnginePreference,
+  type LocalModelConfig,
 } from "../engine/config";
+import { WEBLLM_MODELS } from "../engine/webllm";
 
 interface Props {
   config: AppConfig;
   onChange: (config: AppConfig) => void;
+  local: LocalModelConfig;
+  onLocal: (patch: Partial<LocalModelConfig>) => void;
+  /** One-line status of the resolved on-device engine. */
+  runtimeNote: string;
+  webgpuNote: string;
   onClose: () => void;
 }
 
-export function SettingsPanel({ config, onChange, onClose }: Props) {
+const ENGINES: { id: EnginePreference; label: string; hint: string }[] = [
+  { id: "auto", label: "Auto", hint: "Gemini Nano when this Chrome has it, otherwise WebLLM on WebGPU." },
+  { id: "nano", label: "Gemini Nano", hint: "Only Chrome 139+ desktop with the built-in AI model." },
+  { id: "webllm", label: "WebLLM", hint: "A quantised open model on WebGPU; works in Edge and Chrome 121+." },
+];
+
+export function SettingsPanel({ config, onChange, local, onLocal, runtimeNote, webgpuNote, onClose }: Props) {
   const [paste, setPaste] = useState("");
   const [siteKey, setSiteKey] = useState(config.appCheck.siteKey ?? "");
   const [debugToken, setDebugToken] = useState(config.appCheck.debugToken ?? "");
@@ -54,7 +68,54 @@ export function SettingsPanel({ config, onChange, onClose }: Props) {
   return (
     <div className="overlay" onClick={onClose}>
       <div className="drawer" onClick={(event) => event.stopPropagation()}>
-        <h2>Connect Firebase AI Logic</h2>
+        <h2>On-device engine</h2>
+        <p style={{ marginBottom: 6 }}>{runtimeNote}</p>
+        <div className="segmented" role="group" aria-label="On-device engine">
+          {ENGINES.map((engine) => (
+            <button
+              key={engine.id}
+              className={local.engine === engine.id ? "on" : ""}
+              title={engine.hint}
+              aria-pressed={local.engine === engine.id}
+              onClick={() => onLocal({ engine: engine.id })}
+            >
+              {engine.label}
+            </button>
+          ))}
+        </div>
+        <div className="field-label" style={{ marginTop: 10 }}>
+          WebLLM model
+        </div>
+        <select
+          value={local.webllmModel}
+          onChange={(event) => onLocal({ webllmModel: event.target.value })}
+          aria-label="WebLLM model"
+          style={{ width: "100%", padding: "7px 8px", fontSize: 12.5 }}
+        >
+          {WEBLLM_MODELS.map((model) => (
+            <option key={model.id} value={model.id}>
+              {model.label} · {model.sizeMb} MB VRAM
+            </option>
+          ))}
+        </select>
+        <p style={{ marginTop: 6, fontSize: 11.5, color: "var(--dim)" }}>{webgpuNote}</p>
+
+        <button
+          className="switch"
+          type="button"
+          role="switch"
+          aria-checked={local.embeddings}
+          onClick={() => onLocal({ embeddings: !local.embeddings })}
+          style={{ marginTop: 8 }}
+        >
+          <span className="switch-text">
+            <strong>transformers.js local embeddings</strong>
+            <span>Semantic sensitivity and near-duplicate removal, on this device.</span>
+          </span>
+          <span className={`toggle ${local.embeddings ? "on" : ""}`} aria-hidden />
+        </button>
+
+        <h2 style={{ marginTop: 18 }}>Connect Firebase AI Logic</h2>
         <p>
           VaultBrief calls Gemini through Firebase AI Logic, which needs a Firebase project and App Check. The
           config is public (it identifies the project, it authorises nothing) and it is stored in this browser

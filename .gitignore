@@ -12,3 +12,6 @@ vendor/
 # would then resolve *instead of* the .ts file.
 *.tsbuildinfo
 src/**/*.js
+
+# Deployment artefact for the Cloudflare Pages direct upload (built from dist/)
+dist.zip

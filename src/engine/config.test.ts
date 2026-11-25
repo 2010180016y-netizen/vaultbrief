@@ -1,6 +1,15 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { parseFirebaseConfigPaste, saveAppCheck, clearAppCheck, loadConfig } from "./config";
+import {
+  DEFAULT_LOCAL_CONFIG,
+  loadLocalConfig,
+  loadConfig,
+  parseFirebaseConfigPaste,
+  saveAppCheck,
+  clearAppCheck,
+  saveLocalConfig,
+} from "./config";
+import { DEFAULT_WEBLLM_MODEL } from "./webllm";
 
 describe("parseFirebaseConfigPaste", () => {
   it("reads the JSON the Firebase console shows", () => {
@@ -53,5 +62,28 @@ describe("configuration storage", () => {
     const config = loadConfig();
     expect(config.firebase).toBeNull();
     expect(config.missing.join(" ")).toMatch(/No Firebase config/);
+  });
+});
+
+describe("local model settings", () => {
+  it("defaults to auto with the compact WebLLM model and embeddings on", () => {
+    expect(DEFAULT_LOCAL_CONFIG.engine).toBe("auto");
+    expect(DEFAULT_LOCAL_CONFIG.embeddings).toBe(true);
+    expect(loadLocalConfig()).toEqual(DEFAULT_LOCAL_CONFIG);
+  });
+
+  it("keeps the default WebLLM model in sync with the catalogue", () => {
+    expect(DEFAULT_LOCAL_CONFIG.webllmModel).toBe(DEFAULT_WEBLLM_MODEL);
+  });
+
+  it("round-trips the engine choice and rejects nonsense", () => {
+    saveLocalConfig({ engine: "webllm", webllmModel: "Llama-3.2-1B-Instruct-q4f16_1-MLC", embeddings: false });
+    const stored = loadLocalConfig();
+    expect(stored.engine).toBe("webllm");
+    expect(stored.embeddings).toBe(false);
+    expect(stored.webllmModel).toBe("Llama-3.2-1B-Instruct-q4f16_1-MLC");
+
+    globalThis.localStorage?.setItem("vaultbrief.local.v1", JSON.stringify({ engine: "telepathy" }));
+    expect(loadLocalConfig().engine).toBe("auto");
   });
 });

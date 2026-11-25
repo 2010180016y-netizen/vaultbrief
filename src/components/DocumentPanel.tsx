@@ -14,6 +14,12 @@ interface Props {
   progress: Progress | null;
   download: number | null;
   device: DeviceStatus;
+  /** Human name of the engine that will serve the private route. */
+  engineName: string;
+  /** Why that engine (or none) — WebGPU, Nano, download size. */
+  engineNote: string;
+  /** transformers.js status for the local semantic layer. */
+  embedderStatus: "off" | "loading" | "ready" | "error";
   plan: RouteOutcome | null;
   onText: (value: string) => void;
   onSample: (id: string) => void;
@@ -44,6 +50,9 @@ export function DocumentPanel({
   progress,
   download,
   device,
+  engineName,
+  engineNote,
+  embedderStatus,
   plan,
   onText,
   onSample,
@@ -240,7 +249,7 @@ export function DocumentPanel({
         <div className="panel-body device">
           <div className="device-row">
             <span className={`status-dot ${deviceTone}`} />
-            <strong style={{ fontSize: 13 }}>Gemini Nano</strong>
+            <strong style={{ fontSize: 13 }}>{engineName}</strong>
             <span style={{ color: "var(--dim)" }}>·</span>
             <span style={{ color: "var(--muted)" }}>{device.availability}</span>
           </div>
@@ -257,13 +266,25 @@ export function DocumentPanel({
 
           {canDownload && download === null && (
             <button className="ghost" onClick={onPrepareDevice} style={{ justifySelf: "start" }}>
-              {device.availability === "downloading" ? "Prepare on-device model" : "Download Gemini Nano"}
+              {device.availability === "downloading"
+                ? "Prepare on-device model"
+                : engineName.startsWith("WebLLM")
+                  ? "Download WebLLM model"
+                  : "Download Gemini Nano"}
             </button>
           )}
 
+          <div className="device-note">{engineNote}</div>
+
           <div className="device-note" style={{ color: "var(--dim)" }}>
-            Chrome 139+ on desktop with the built-in AI (Prompt API). The model downloads once, then private
-            documents never leave this device.
+            <span className="mono">transformers.js</span> ·{" "}
+            {embedderStatus === "ready"
+              ? "local embeddings ready: semantic sensitivity + duplicate removal"
+              : embedderStatus === "loading"
+                ? "loading the embedding model (about 23 MB, cached after the first run)"
+                : embedderStatus === "off"
+                  ? "local semantic layer off"
+                  : "embedding model unavailable — keyword and entity layers still run"}
           </div>
         </div>
       </section>

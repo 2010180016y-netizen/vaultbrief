@@ -62,6 +62,8 @@ export interface DeviceStatus {
   /** Set when the app can see a model download in progress. */
   downloadProgress?: number;
   note: string;
+  /** Which on-device engine will serve the private route. */
+  engine?: "nano" | "webllm" | "none";
 }
 
 export interface RoutePlan {
@@ -108,9 +110,30 @@ export interface RunReceipt {
   tokensOut: number;
   chunks: number;
   redacted: boolean;
-  /** Model that produced the brief: the cloud model name, or gemini-nano. */
+  /** Model that produced the brief: the cloud model name, gemini-nano, or a WebLLM model id. */
   model: string;
   notes: string[];
+  /** Summary of the Presidio entity layer for this run. */
+  pii?: {
+    engine: string;
+    entities: number;
+    validated: number;
+    contextBoosted: number;
+    score: number;
+    masked: number;
+  };
+  /** transformers.js semantic signal, when the local embedder was loaded. */
+  semantic?: {
+    score: number;
+    similarity: number;
+    category: Category | null;
+    confident: boolean;
+  };
+  /** What the local model stack did besides inference. */
+  local?: {
+    embedder: string | null;
+    dedupedChunks: number;
+  };
 }
 
 export interface RunResult {

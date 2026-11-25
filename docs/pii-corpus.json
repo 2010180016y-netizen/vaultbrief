@@ -1,0 +1,77 @@
+{
+  "description": "Labelled PII corpus shared by the TypeScript recognizers (src/engine/presidio) and the real microsoft/presidio oracle (scripts/presidio-oracle.py). The oracle only understands English; the Korean samples exist to prove the gap this port fills.",
+  "samples": [
+    {
+      "id": "en-contact",
+      "language": "en",
+      "text": "Contact Jane Doe at jane.doe@example.com or +1 415 555 0134.",
+      "expect": ["PERSON", "EMAIL_ADDRESS", "PHONE_NUMBER"]
+    },
+    {
+      "id": "en-payment",
+      "language": "en",
+      "text": "Charge card 4111 1111 1111 1111 and send the invoice to IBAN GB82WEST12345698765432.",
+      "expect": ["CREDIT_CARD", "IBAN_CODE"]
+    },
+    {
+      "id": "en-address",
+      "language": "en",
+      "text": "Ship the parcel to 1600 Amphitheatre Parkway, Mountain View, CA 94043.",
+      "expect": ["LOCATION"]
+    },
+    {
+      "id": "en-dob",
+      "language": "en",
+      "text": "Date of birth: 1988-03-14. Please confirm before the appointment.",
+      "expect": ["DATE_TIME"]
+    },
+    {
+      "id": "en-ssn",
+      "language": "en",
+      "text": "The employee SSN 123-45-6789 must be filed with payroll.",
+      "expect": ["US_SSN"]
+    },
+    {
+      "id": "en-server",
+      "language": "en",
+      "text": "Server 10.0.14.22 hosts the internal dashboard at https://internal.example.com/report.",
+      "expect": ["IP_ADDRESS"]
+    },
+    {
+      "id": "en-credentials",
+      "language": "en",
+      "text": "config: api_key = sk-live-9f8e7d6c5b4a3210, password: hunter2hunter2",
+      "expect": []
+    },
+    {
+      "id": "kr-identifiers",
+      "language": "ko",
+      "text": "환자 성명: 김민수\n주민등록번호: 900315-1234567\n연락처: 010-2841-7734\n주소: 서울특별시 마포구 월드컵북로 41",
+      "expect": ["PERSON", "KR_RRN", "PHONE_NUMBER", "LOCATION"]
+    },
+    {
+      "id": "kr-finance",
+      "language": "ko",
+      "text": "입금 계좌: 110-123-456789 (신한은행) / 사업자등록번호 123-45-67896 / 담당자 연락처 02-1234-5678",
+      "expect": ["KR_ACCOUNT", "KR_BRN", "PHONE_NUMBER"]
+    },
+    {
+      "id": "kr-licence",
+      "language": "ko",
+      "text": "운전면허 11-22-123456-01, 여권 M12345678, 여권번호는 별도 보관.",
+      "expect": ["KR_DRIVER_LICENSE", "KR_PASSPORT"]
+    },
+    {
+      "id": "negative-public",
+      "language": "en",
+      "text": "Our quarterly newsletter covers three shipping experiments, the new pricing page and a note about the 2026 roadmap. Nothing here identifies a person.",
+      "expect": []
+    },
+    {
+      "id": "negative-numbers",
+      "language": "en",
+      "text": "Revenue grew 18% in Q3 with 2,400 shipments across 12 markets and 2026-01-01 planning.",
+      "expect": []
+    }
+  ]
+}

@@ -1,9 +1,12 @@
 import { formatChars, formatUsd, summarize } from "../engine/metrics";
+import type { PiiAnalysis } from "../engine/pii";
 import type { RouteOutcome } from "../engine/router";
 import type { RunReceipt, ScanResult } from "../engine/types";
 
 interface Props {
   scan: ScanResult | null;
+  /** Presidio-shaped entity layer for the same text. */
+  pii: PiiAnalysis | null;
   plan: RouteOutcome | null;
   ledger: RunReceipt[];
   /** Live threshold (Remote Config can change it). */
@@ -24,7 +27,7 @@ function timeOf(iso: string): string {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-export function ConsolePanel({ scan, plan, ledger, threshold, remoteError, onClearLedger }: Props) {
+export function ConsolePanel({ scan, pii, plan, ledger, threshold, remoteError, onClearLedger }: Props) {
   const summary = summarize(ledger);
 
   return (
@@ -78,6 +81,44 @@ export function ConsolePanel({ scan, plan, ledger, threshold, remoteError, onCle
                   · Topics that masking cannot remove: {scan.residual.join(", ").toLowerCase()}.
                 </div>
               )}
+            </>
+          )}
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-head">
+          <h2>Presidio entity layer</h2>
+          <div className="spacer" />
+          <span className="mono" style={{ fontSize: 11, color: "var(--dim)" }}>
+            local · checksum+context
+          </span>
+        </div>
+        <div className="panel-body">
+          {!pii || pii.entities.length === 0 ? (
+            <div className="ledger-empty">
+              {pii ? "No entity above the 0.4 confidence threshold." : "Paste or pick a document to analyse it."}
+            </div>
+          ) : (
+            <>
+              <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 8 }}>
+                {pii.entities.length} entit{pii.entities.length === 1 ? "y" : "ies"} ·{" "}
+                {pii.stats.validated} checksum-validated · {pii.stats.contextBoosted} context-boosted
+              </div>
+              <div className="scan-list">
+                {pii.entities.map((entity) => (
+                  <div className="scan-item" key={entity.entityType}>
+                    <span title={entity.entityType}>
+                      {entity.label}
+                      {entity.validated > 0 && <span style={{ color: "var(--device)" }}> ✓</span>}
+                      {entity.contextBoosted > 0 && <span style={{ color: "var(--cloud)" }}> ctx</span>}
+                    </span>
+                    <span className="n">
+                      ×{entity.count} · {entity.maxScore.toFixed(2)} · {entity.examples[0]}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </>
           )}
         </div>

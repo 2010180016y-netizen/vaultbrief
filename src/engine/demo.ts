@@ -16,6 +16,14 @@ const STOP = new Set(
   ),
 );
 
+/** Placeholders the masking layer leaves behind: `[REDACTED:IDENTITY]`. */
+const PLACEHOLDER = /\[REDACTED:[A-Z_]+\]/g;
+
+/** A sentence whose only content was a placeholder cannot carry a brief point. */
+function withoutPlaceholders(sentence: string): string {
+  return sentence.replace(PLACEHOLDER, " ").replace(/\s+/g, " ").trim();
+}
+
 function score(text: string): { sentence: string; value: number; index: number }[] {
   const sentences = splitSentences(text);
   const freq = new Map<string, number>();
@@ -24,7 +32,8 @@ function score(text: string): { sentence: string; value: number; index: number }
     freq.set(word, (freq.get(word) ?? 0) + 1);
   }
   return sentences.map((sentence, index) => {
-    const words = sentence.toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}'-]*/gu) ?? [];
+    const words = withoutPlaceholders(sentence).toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}'-]*/gu) ?? [];
+    if (words.length < 4) return { sentence: sentence.trim(), value: 0, index };
     let value = 0;
     for (const word of words) {
       if (STOP.has(word)) continue;
@@ -46,7 +55,9 @@ export function extractiveBrief(text: string, titleFallback = "Brief"): Brief {
     return { title: titleFallback, tldr: text.slice(0, 160), points: [], flags: [] };
   }
   const ordered = [...ranked].sort((a, b) => a.index - b.index);
-  const top = [...ranked].sort((a, b) => b.value - a.value);
+  const meaningful = ranked.filter((item) => item.value > 0);
+  const pool = meaningful.length > 0 ? meaningful : ranked;
+  const top = [...pool].sort((a, b) => b.value - a.value);
   const tldrSource = top[0].sentence;
   const tldr = tldrSource.length > 220 ? `${tldrSource.slice(0, 217)}…` : tldrSource;
 

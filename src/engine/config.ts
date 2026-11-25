@@ -31,6 +31,55 @@ export interface AppConfig {
   missing: string[];
 }
 
+/** Which on-device engine serves the private route. */
+export type EnginePreference = "auto" | "nano" | "webllm";
+
+export interface LocalModelConfig {
+  /** `auto` prefers Gemini Nano, then WebLLM on WebGPU. */
+  engine: EnginePreference;
+  /** WebLLM model id (see src/engine/webllm.ts). */
+  webllmModel: string;
+  /** Run transformers.js locally for the semantic signal and deduplication. */
+  embeddings: boolean;
+}
+
+const LOCAL_KEY = "vaultbrief.local.v1";
+
+export const DEFAULT_LOCAL_CONFIG: LocalModelConfig = {
+  engine: "auto",
+  // Kept in sync with DEFAULT_WEBLLM_MODEL by a unit test (config.test.ts).
+  webllmModel: "Qwen2.5-0.5B-Instruct-q4f16_1-MLC",
+  embeddings: true,
+};
+
+export function loadLocalConfig(): LocalModelConfig {
+  try {
+    const raw = globalThis.localStorage?.getItem(LOCAL_KEY);
+    if (!raw) return { ...DEFAULT_LOCAL_CONFIG };
+    const parsed = JSON.parse(raw) as Partial<LocalModelConfig>;
+    return {
+      engine: parsed.engine === "nano" || parsed.engine === "webllm" ? parsed.engine : "auto",
+      webllmModel:
+        typeof parsed.webllmModel === "string" && parsed.webllmModel.trim()
+          ? parsed.webllmModel.trim()
+          : DEFAULT_LOCAL_CONFIG.webllmModel,
+      embeddings: parsed.embeddings !== false,
+    };
+  } catch {
+    return { ...DEFAULT_LOCAL_CONFIG };
+  }
+}
+
+export function saveLocalConfig(patch: Partial<LocalModelConfig>): LocalModelConfig {
+  const next: LocalModelConfig = { ...loadLocalConfig(), ...patch };
+  try {
+    globalThis.localStorage?.setItem(LOCAL_KEY, JSON.stringify(next));
+  } catch {
+    /* storage blocked: the choice still applies for this tab */
+  }
+  return next;
+}
+
 const STORAGE_KEY = "vaultbrief.firebase.v1";
 const APP_CHECK_KEY = "vaultbrief.appcheck.v1";
 

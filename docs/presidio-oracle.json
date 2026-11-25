@@ -1,0 +1,189 @@
+{
+  "generated_by": "scripts/presidio-oracle.py",
+  "presidio_analyzer": "2.2.366",
+  "spacy_model": "en_core_web_sm",
+  "score_threshold": 0.4,
+  "shared_entities": [
+    "CREDIT_CARD",
+    "DATE_TIME",
+    "EMAIL_ADDRESS",
+    "IBAN_CODE",
+    "IP_ADDRESS",
+    "LOCATION",
+    "PERSON",
+    "PHONE_NUMBER"
+  ],
+  "samples": [
+    {
+      "id": "en-contact",
+      "results": [
+        {
+          "entity_type": "PERSON",
+          "start": 8,
+          "end": 16,
+          "score": 0.85,
+          "value": "Jane Doe"
+        },
+        {
+          "entity_type": "EMAIL_ADDRESS",
+          "start": 20,
+          "end": 40,
+          "score": 1.0,
+          "value": "jane.doe@example.com"
+        },
+        {
+          "entity_type": "PHONE_NUMBER",
+          "start": 44,
+          "end": 59,
+          "score": 0.4,
+          "value": "+1 415 555 0134"
+        },
+        {
+          "entity_type": "DATE_TIME",
+          "start": 55,
+          "end": 59,
+          "score": 0.85,
+          "value": "0134"
+        }
+      ]
+    },
+    {
+      "id": "en-payment",
+      "results": [
+        {
+          "entity_type": "CREDIT_CARD",
+          "start": 12,
+          "end": 31,
+          "score": 1.0,
+          "value": "4111 1111 1111 1111"
+        },
+        {
+          "entity_type": "DATE_TIME",
+          "start": 17,
+          "end": 21,
+          "score": 0.85,
+          "value": "1111"
+        },
+        {
+          "entity_type": "IBAN_CODE",
+          "start": 61,
+          "end": 83,
+          "score": 1.0,
+          "value": "GB82WEST12345698765432"
+        }
+      ]
+    },
+    {
+      "id": "en-address",
+      "results": [
+        {
+          "entity_type": "LOCATION",
+          "start": 46,
+          "end": 59,
+          "score": 0.85,
+          "value": "Mountain View"
+        },
+        {
+          "entity_type": "DATE_TIME",
+          "start": 61,
+          "end": 69,
+          "score": 0.85,
+          "value": "CA 94043"
+        }
+      ]
+    },
+    {
+      "id": "en-dob",
+      "results": [
+        {
+          "entity_type": "DATE_TIME",
+          "start": 15,
+          "end": 25,
+          "score": 0.95,
+          "value": "1988-03-14"
+        }
+      ]
+    },
+    {
+      "id": "en-ssn",
+      "results": []
+    },
+    {
+      "id": "en-server",
+      "results": [
+        {
+          "entity_type": "IP_ADDRESS",
+          "start": 7,
+          "end": 17,
+          "score": 0.6,
+          "value": "10.0.14.22"
+        }
+      ]
+    },
+    {
+      "id": "en-credentials",
+      "results": [
+        {
+          "entity_type": "PERSON",
+          "start": 0,
+          "end": 6,
+          "score": 0.85,
+          "value": "config"
+        }
+      ]
+    },
+    {
+      "id": "kr-identifiers",
+      "results": [],
+      "note": "stock Presidio has no Korean recognizers"
+    },
+    {
+      "id": "kr-finance",
+      "results": [],
+      "note": "stock Presidio has no Korean recognizers"
+    },
+    {
+      "id": "kr-licence",
+      "results": [],
+      "note": "stock Presidio has no Korean recognizers"
+    },
+    {
+      "id": "negative-public",
+      "results": [
+        {
+          "entity_type": "DATE_TIME",
+          "start": 4,
+          "end": 13,
+          "score": 0.85,
+          "value": "quarterly"
+        },
+        {
+          "entity_type": "DATE_TIME",
+          "start": 102,
+          "end": 106,
+          "score": 0.85,
+          "value": "2026"
+        }
+      ]
+    },
+    {
+      "id": "negative-numbers",
+      "results": [
+        {
+          "entity_type": "DATE_TIME",
+          "start": 20,
+          "end": 22,
+          "score": 0.85,
+          "value": "Q3"
+        },
+        {
+          "entity_type": "DATE_TIME",
+          "start": 66,
+          "end": 76,
+          "score": 0.85,
+          "value": "2026-01-01"
+        }
+      ]
+    }
+  ]
+}

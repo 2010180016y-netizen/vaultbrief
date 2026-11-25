@@ -5,16 +5,19 @@ import { DocumentPanel } from "./components/DocumentPanel";
 import { BriefPanel } from "./components/BriefPanel";
 import { ConsolePanel } from "./components/ConsolePanel";
 import { SettingsPanel } from "./components/SettingsPanel";
-import { loadConfig, type AppConfig } from "./engine/config";
-import { probeDevice } from "./engine/device";
+import { loadConfig, loadLocalConfig, saveLocalConfig, type AppConfig, type LocalModelConfig } from "./engine/config";
+import { probeRuntime, type DeviceRuntime } from "./engine/deviceRuntime";
+import { TransformersEmbedder, type Embedder } from "./engine/embeddings";
 import { planFor, runBrief, type RunOutcome } from "./engine/engine";
 import { HybridClient } from "./engine/hybrid";
+import { analyzeDocument } from "./engine/pii";
 import { SAMPLES } from "./engine/samples";
 import { clampThreshold } from "./engine/router";
 import { scan } from "./engine/sensitivity";
 import { loadRemoteOverrides, type RemoteOverrides } from "./engine/remote";
 import { loadLedger, saveLedger, syncReceipt } from "./engine/store";
 import type { DeviceStatus, Policy, Progress, RunReceipt } from "./engine/types";
+import { WebLlmEngine } from "./engine/webllm";
 
 const UNKNOWN_DEVICE: DeviceStatus = {
   supported: false,
@@ -43,17 +46,35 @@ export default function App() {
   const [outcomeText, setOutcomeText] = useState<string | null>(null);
   const [ledger, setLedger] = useState<RunReceipt[]>(() => loadLedger());
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [local, setLocal] = useState<LocalModelConfig>(() => loadLocalConfig());
+  const [runtime, setRuntime] = useState<DeviceRuntime | null>(null);
+  const [deviceError, setDeviceError] = useState<string | null>(null);
+  const [embedderStatus, setEmbedderStatus] = useState<"off" | "loading" | "ready" | "error">(
+    () => (loadLocalConfig().embeddings ? "off" : "off"),
+  );
   const abortRef = useRef<AbortController | null>(null);
+  const engineRef = useRef<WebLlmEngine | null>(null);
+  const embedderRef = useRef<Embedder | null>(null);
+
+  const refreshRuntime = useCallback(async () => {
+    const next = await probeRuntime({
+      preference: local.engine,
+      modelId: local.webllmModel,
+      webllmReady: engineRef.current?.ready ?? false,
+    });
+    setRuntime(next);
+    return next;
+  }, [local.engine, local.webllmModel]);
 
   useEffect(() => {
     let alive = true;
-    probeDevice().then((status) => {
-      if (alive) setDevice(status);
+    refreshRuntime().then((next) => {
+      if (alive) setDevice(next.status);
     });
     return () => {
       alive = false;
     };
-  }, []);
+  }, [refreshRuntime]);
 
   useEffect(() => {
     let alive = true;
@@ -113,6 +134,7 @@ export default function App() {
   const threshold = clampThreshold(overrides.threshold);
   const live = client !== null;
   const scanResult = useMemo(() => (text.trim() ? scan(text) : null), [text]);
+  const pii = useMemo(() => (text.trim() ? analyzeDocument(text) : null), [text]);
   const plan = useMemo(
     () =>
       text.trim()
@@ -134,10 +156,15 @@ export default function App() {
     setDownload(null);
 
     try {
-      if (client && device.availability === "available") {
+      if (runtime?.engine === "nano" && client) {
         // Must happen inside the click handler: Chrome only starts or resumes a
         // model download with user activation.
         await client.prepareDevice((value) => setDownload(value)).catch(() => undefined);
+      }
+      // transformers.js is loaded on the first run only: 23 MB, cached after.
+      let embedder: Embedder | null = null;
+      if (local.embeddings) {
+        embedder = await ensureEmbedder();
       }
       const result = await runBrief({
         text,
@@ -145,6 +172,8 @@ export default function App() {
         maskingAllowed: masking,
         device,
         client,
+        deviceEngine: engineRef.current?.ready ? engineRef.current : null,
+        embedder: embedder?.ready ? embedder : null,
         cloudModel,
         threshold,
         signal: controller.signal,
@@ -162,7 +191,7 @@ export default function App() {
         });
         if (client) void syncReceipt(receipt);
       }
-      probeDevice().then(setDevice);
+      await refreshRuntime();
     } finally {
       abortRef.current = null;
       setRunning(false);
@@ -175,6 +204,58 @@ export default function App() {
   const handleCancel = useCallback(() => {
     setCancelling(true);
     abortRef.current?.abort();
+  }, []);
+
+  const ensureEmbedder = useCallback(async (): Promise<Embedder | null> => {
+    if (embedderRef.current?.ready) return embedderRef.current;
+    setEmbedderStatus("loading");
+    const embedder = embedderRef.current ?? new TransformersEmbedder();
+    embedderRef.current = embedder;
+    try {
+      await embedder.prepare();
+      setEmbedderStatus("ready");
+      return embedder;
+    } catch {
+      setEmbedderStatus("error");
+      return null;
+    }
+  }, []);
+
+  const prepareDevice = useCallback(async () => {
+    setDeviceError(null);
+    try {
+      if (runtime?.engine === "nano" || (runtime?.promptApi.availability === "available" && local.engine !== "webllm")) {
+        if (!client) {
+          setDeviceError("Gemini Nano is prepared through Firebase AI Logic; connect a project in Settings first.");
+        } else {
+          await client.prepareDevice((value) => setDownload(value));
+        }
+      } else {
+        engineRef.current = engineRef.current ?? new WebLlmEngine(local.webllmModel);
+        await engineRef.current.prepare((value, message) => {
+          setDownload(value);
+          setProgress({ phase: "prepare", message: message || "Loading the on-device model…" });
+        });
+      }
+    } catch (error) {
+      const hint = (error as { hint?: string }).hint;
+      setDeviceError([(error as Error).message, hint].filter(Boolean).join(" "));
+    } finally {
+      setDownload(null);
+      setProgress(null);
+      const next = await refreshRuntime();
+      setDevice(next.status);
+    }
+  }, [runtime, local.engine, local.webllmModel, client, refreshRuntime]);
+
+  const updateLocal = useCallback((patch: Partial<LocalModelConfig>) => {
+    const next = saveLocalConfig(patch);
+    setLocal(next);
+    if (patch.embeddings === false) {
+      embedderRef.current?.dispose?.();
+      embedderRef.current = null;
+      setEmbedderStatus("off");
+    }
   }, []);
 
   const handleConfigChange = useCallback((next: AppConfig) => {
@@ -245,12 +326,16 @@ export default function App() {
             onMasking={setMasking}
             onRun={handleRun}
             onCancel={handleCancel}
-            onPrepareDevice={async () => {
-              if (!client) return;
-              await client.prepareDevice((value) => setDownload(value)).catch(() => undefined);
-              const status = await probeDevice();
-              setDevice(status);
-            }}
+            engineName={
+              runtime?.engine === "webllm"
+                ? "WebLLM (WebGPU)"
+                : runtime?.engine === "nano"
+                  ? "Gemini Nano"
+                  : "No on-device engine"
+            }
+            engineNote={deviceError ?? runtime?.note ?? device.note}
+            embedderStatus={embedderStatus}
+            onPrepareDevice={prepareDevice}
           />
         </div>
 
@@ -268,6 +353,7 @@ export default function App() {
         <div className="col-console">
           <ConsolePanel
             scan={scanResult}
+            pii={pii}
             plan={plan}
             ledger={ledger}
             threshold={threshold}
@@ -289,6 +375,10 @@ export default function App() {
         <SettingsPanel
           config={config}
           onChange={handleConfigChange}
+          local={local}
+          onLocal={updateLocal}
+          runtimeNote={runtime?.note ?? "Checking browser capabilities…"}
+          webgpuNote={runtime?.webgpu.note ?? ""}
           onClose={() => setSettingsOpen(false)}
         />
       )}

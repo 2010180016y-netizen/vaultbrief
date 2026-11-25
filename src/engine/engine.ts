@@ -1,6 +1,8 @@
 import { estimateTokens, splitText } from "./chunk";
 import { extractiveBrief } from "./demo";
+import { dedupeChunks, dedupePoints, semanticSensitivity, type Embedder, type SemanticSignal } from "./embeddings";
 import { HybridClient, HybridError } from "./hybrid";
+import { mergeScans, maskDocument } from "./pii";
 import { cloudPrompt, mergePrompt, onDevicePrompt, parseBrief } from "./prompt";
 import {
   CLOUD_CHUNK_BUDGET,
@@ -9,7 +11,8 @@ import {
   decideRoute,
   type RouteOutcome,
 } from "./router";
-import { redact, scan } from "./sensitivity";
+import { scan } from "./sensitivity";
+import type { OnDeviceEngine } from "./webllm";
 import type {
   DeviceStatus,
   InferenceSourceName,
@@ -26,8 +29,12 @@ export interface RunInput {
   /** "Mask identifiers before anything is sent to the cloud". */
   maskingAllowed: boolean;
   device: DeviceStatus;
-  /** null when no Firebase project is configured: the run is simulated. */
+  /** null when no Firebase project is configured: cloud calls are simulated. */
   client: HybridClient | null;
+  /** WebLLM (or another WebGPU engine). When ready it serves the on-device route. */
+  deviceEngine?: OnDeviceEngine | null;
+  /** transformers.js embedder: local semantic signal and near-duplicate removal. */
+  embedder?: Embedder | null;
   cloudModel: string;
   /** Overrides the sensitivity threshold, e.g. from Remote Config. */
   threshold?: number;
@@ -132,43 +139,99 @@ export async function runBrief(input: RunInput): Promise<RunOutcome> {
   const progress = input.onProgress ?? (() => {});
   const signal = input.signal;
   const trimmed = input.text.trim();
+  const deviceEngine = input.deviceEngine ?? null;
+  const embedder = input.embedder ?? null;
 
   progress({ phase: "scan", message: "Scanning for identifiers on this device…" });
-  const scanResult = scan(trimmed);
+
+  // Two local detectors run before anything else: the regex scan and the
+  // Presidio layer. The router sees their union, so an identifier that only
+  // the entity layer knows about still changes the route.
+  let scanResult = scan(trimmed);
+  const masked = maskDocument(trimmed);
+  scanResult = mergeScans(scanResult, masked.analysis);
+  // The plan's "N identifiers are replaced" must match the masked copy that is
+  // actually produced (the two layers can rewrite more spans than either counted).
+  scanResult = { ...scanResult, redactable: Math.max(scanResult.redactable, masked.replaced) };
+
+  let semantic: SemanticSignal | null = null;
+  if (embedder?.ready && trimmed.length > 0) {
+    progress({ phase: "scan", message: "Scoring the document locally with transformers.js…" });
+    try {
+      semantic = await semanticSensitivity(trimmed, embedder);
+    } catch (error) {
+      // A local classifier that fails must never block the privacy decision.
+      semantic = null;
+      progress({ phase: "scan", message: `Local semantic score skipped: ${(error as Error).message}` });
+    }
+    if (semantic?.confident) {
+      scanResult = { ...scanResult, score: Math.max(scanResult.score, semantic.score) };
+    }
+  }
+
   const plan = planFor(input, scanResult);
 
   if (plan.blocked) {
     return { status: "blocked", plan, scan: scanResult, reason: plan.reason };
   }
 
-  const simulated = input.client === null;
-  const plannedSource: InferenceSourceName = plan.expectedSource;
   const cloudModel = input.cloudModel.trim() || "gemini-3.5-flash-lite";
-  const onDevice = plannedSource === "on_device";
+  const onDevice = plan.expectedSource === "on_device";
+  const engineServesDevice = onDevice && (deviceEngine?.ready ?? false);
+  // "Simulated" is per call now: a ready WebLLM engine is a real model even
+  // when no Firebase project is connected.
+  const cloudSimulated = input.client === null;
+  let usedSimulator = false;
+
   const budget = onDevice ? DEVICE_CHUNK_BUDGET : CLOUD_CHUNK_BUDGET;
   const promptFor = onDevice ? onDevicePrompt : cloudPrompt;
 
   progress({ phase: "prepare", message: "Preparing the text for the chosen route…" });
-  const working = plan.redactBeforeSending ? redact(trimmed).text : trimmed;
-  const chunks = splitText(working, { budget, overlap: onDevice ? DEVICE_CHUNK_OVERLAP : 0 });
+  let working = plan.redactBeforeSending ? masked.text : trimmed;
+  let chunks = splitText(working, { budget, overlap: onDevice ? DEVICE_CHUNK_OVERLAP : 0 });
+
+  let dedupedChunks = 0;
+  if (embedder?.ready && chunks.length > 1) {
+    progress({ phase: "prepare", message: "Collapsing repeated passages with local embeddings…" });
+    try {
+      const vectors = await embedder.embed(chunks);
+      const deduped = dedupeChunks(vectors);
+      if (deduped.dropped.length > 0) {
+        dedupedChunks = deduped.dropped.length;
+        chunks = deduped.kept.map((index) => chunks[index]);
+      }
+    } catch {
+      // Deduplication is an optimisation; the run continues without it.
+    }
+  }
 
   const notes: string[] = [];
   let cloudChars = 0;
   let tokensIn = 0;
   let tokensOut = 0;
-  let actualSource: InferenceSourceName = plannedSource;
+  let actualSource: InferenceSourceName = plan.expectedSource;
   let cloudPasses = 0;
   let devicePasses = 0;
+  let deviceModel = "gemini-nano";
   const partials: string[] = [];
   let finalRaw = "";
 
-  const call = async (
-    prompt: string,
-    documentText: string,
-  ): Promise<{ text: string; source: InferenceSourceName }> => {
+  const call = async (prompt: string, documentText: string): Promise<{ text: string; source: InferenceSourceName }> => {
     if (signal?.aborted) throw new CancelledError();
+    if (engineServesDevice && deviceEngine) {
+      const outcome = await deviceEngine.generate({
+        prompt,
+        signal,
+        timeoutMs: input.timeoutMs,
+      });
+      deviceModel = outcome.model;
+      tokensIn += outcome.usage?.promptTokens || estimateTokens(prompt);
+      tokensOut += outcome.usage?.completionTokens || estimateTokens(outcome.text);
+      return { text: outcome.text, source: "on_device" };
+    }
+    const simulated = cloudSimulated;
     const outcome = simulated
-      ? await simulateCall(prompt, documentText, plannedSource, signal)
+      ? await simulateCall(prompt, documentText, plan.expectedSource, signal)
       : await input.client!.generate({
           prompt,
           mode: plan.mode,
@@ -176,6 +239,7 @@ export async function runBrief(input: RunInput): Promise<RunOutcome> {
           signal,
           timeoutMs: input.timeoutMs,
         });
+    if (simulated) usedSimulator = true;
     tokensIn += estimateTokens(prompt);
     tokensOut += estimateTokens(outcome.text);
     return outcome;
@@ -196,11 +260,17 @@ export async function runBrief(input: RunInput): Promise<RunOutcome> {
     if (signal?.aborted) throw new CancelledError();
     const prompt = mergePrompt(group);
     tokensIn += estimateTokens(prompt);
-    if (simulated) {
+    if (engineServesDevice && deviceEngine) {
+      const outcome = await deviceEngine.generate({ prompt, signal, timeoutMs: input.timeoutMs });
+      tokensOut += outcome.usage?.completionTokens || estimateTokens(outcome.text);
+      return { text: outcome.text, source: "on_device" };
+    }
+    if (cloudSimulated) {
       await sleep(140 + Math.min(320, group.length * 60), signal);
       const text = mergeSimulated(group);
       tokensOut += estimateTokens(text);
-      return { text, source: plannedSource };
+      usedSimulator = true;
+      return { text, source: plan.expectedSource };
     }
     const outcome = await input.client!.generate({
       prompt,
@@ -221,7 +291,9 @@ export async function runBrief(input: RunInput): Promise<RunOutcome> {
         message:
           chunks.length === 1
             ? onDevice
-              ? "Gemini Nano is reading on this device…"
+              ? deviceEngine?.ready
+                ? `${deviceEngine.label} is reading on this device…`
+                : "Gemini Nano is reading on this device…"
               : "A cloud model is reading the document…"
             : `Briefing part ${i + 1} of ${chunks.length}…`,
         completed: i,
@@ -267,10 +339,12 @@ export async function runBrief(input: RunInput): Promise<RunOutcome> {
     const aborted =
       error instanceof CancelledError ||
       (error instanceof HybridError && error.code === "request/aborted") ||
+      (error as { code?: string })?.code === "request/aborted" ||
       (error as { name?: string })?.name === "AbortError" ||
       signal?.aborted === true;
     if (aborted) return cancelOutcome();
     const hybridError = error instanceof HybridError ? error : null;
+    const hintLike = error as { hint?: string };
     return {
       status: "error",
       plan,
@@ -278,14 +352,30 @@ export async function runBrief(input: RunInput): Promise<RunOutcome> {
       error: hybridError ? hybridError.message : (error as Error).message,
       hint:
         hybridError?.hint ??
+        hintLike?.hint ??
         "The request failed before a brief was produced. Nothing is retried automatically.",
     };
   }
 
-  const brief = parseBrief(finalRaw, input.titleFallback ?? "Brief");
-  if (actualSource !== plannedSource) {
+  let brief = parseBrief(finalRaw, input.titleFallback ?? "Brief");
+  if (embedder?.ready && brief.points.length > 1) {
+    try {
+      const pointVectors = await embedder.embed(brief.points);
+      const deduped = dedupePoints(brief.points, pointVectors);
+      if (deduped.length !== brief.points.length) {
+        brief = { ...brief, points: deduped };
+        notes.push(
+          `${brief.points.length} brief points kept: ${deduped.length} near-duplicate${deduped.length === 1 ? "" : "s"} removed by local embeddings.`,
+        );
+      }
+    } catch {
+      // keep the merged points as produced
+    }
+  }
+
+  if (actualSource !== plan.expectedSource) {
     notes.push(
-      `The SDK fell back: this run was expected to use ${plannedSource === "on_device" ? "the device" : "the cloud"} but ran ${actualSource === "on_device" ? "on-device" : "in the cloud"}.`,
+      `The SDK fell back: this run was expected to use ${plan.expectedSource === "on_device" ? "the device" : "the cloud"} but ran ${actualSource === "on_device" ? "on-device" : "in the cloud"}.`,
     );
   }
   if (cloudPasses > 0 && devicePasses > 0) {
@@ -296,7 +386,7 @@ export async function runBrief(input: RunInput): Promise<RunOutcome> {
   if (plan.redactBeforeSending) {
     notes.push("Only the masked copy left the device; the original text stayed in this tab.");
     notes.push(
-      `Masked copy: ${cloudChars.toLocaleString()} characters transmitted; ${scanResult.redactedChars.toLocaleString()} characters (${scanResult.redactable} identifier${scanResult.redactable === 1 ? "" : "s"}) were replaced before sending. Placeholders can be longer than the value they replace.`,
+      `Masked copy: ${cloudChars.toLocaleString()} characters transmitted; ${masked.replaced} span${masked.replaced === 1 ? "" : "s"} were replaced (Presidio entities + rules) and ${scanResult.redactedChars.toLocaleString()} characters of the original never left. Placeholders can be longer than the value they replace.`,
     );
     if (scanResult.residual.length > 0) {
       notes.push(
@@ -304,7 +394,20 @@ export async function runBrief(input: RunInput): Promise<RunOutcome> {
       );
     }
   }
-  if (simulated) {
+  if (deviceEngine?.ready && devicePasses > 0) {
+    notes.push(`On-device inference ran on ${deviceEngine.label} (${deviceModel}); the model weights were downloaded once and cached by the browser.`);
+  }
+  if (dedupedChunks > 0) {
+    notes.push(
+      `${dedupedChunks} repeated passage${dedupedChunks === 1 ? "" : "s"} removed locally before inference (transformers.js embeddings, cosine ≥ 0.96).`,
+    );
+  }
+  if (semantic?.confident) {
+    notes.push(
+      `Local semantic scan: ${semantic.category} phrasing at cosine ${semantic.similarity} (transformers.js), which the keyword rules alone would not have weighted.`,
+    );
+  }
+  if (usedSimulator) {
     notes.push(
       "Simulated: no Firebase project is configured, so a local extractive summariser produced this brief instead of Gemini.",
     );
@@ -317,11 +420,10 @@ export async function runBrief(input: RunInput): Promise<RunOutcome> {
     policy: input.policy,
     requestedMode: plan.mode,
     source: actualSource,
-    simulated,
+    simulated: usedSimulator,
     latencyMs: Math.round(performance.now() - started),
     inputChars: trimmed.length,
     cloudChars,
-    // A masked run keeps its identifiers local; everything else was sent as a placeholder copy.
     stayedLocalChars: plan.redactBeforeSending
       ? Math.min(trimmed.length, scanResult.redactedChars)
       : Math.max(0, trimmed.length - cloudChars),
@@ -329,8 +431,28 @@ export async function runBrief(input: RunInput): Promise<RunOutcome> {
     tokensOut,
     chunks: chunks.length,
     redacted: plan.redactBeforeSending,
-    model: actualSource === "in_cloud" ? cloudModel : "gemini-nano",
+    model: actualSource === "in_cloud" ? cloudModel : deviceModel,
     notes,
+    pii: {
+      engine: "presidio-ts (v2.2 recognizer semantics)",
+      entities: masked.analysis.entities.length,
+      validated: masked.analysis.stats.validated,
+      contextBoosted: masked.analysis.stats.contextBoosted,
+      score: masked.analysis.score,
+      masked: masked.analysis.maskable,
+    },
+    semantic: semantic
+      ? {
+          score: semantic.score,
+          similarity: semantic.similarity,
+          category: semantic.category,
+          confident: semantic.confident,
+        }
+      : undefined,
+    local: {
+      embedder: embedder?.ready ? embedder.id : null,
+      dedupedChunks,
+    },
   };
 
   progress({ phase: "done", message: "Brief ready." });
@@ -339,7 +461,7 @@ export async function runBrief(input: RunInput): Promise<RunOutcome> {
     result: { brief, receipt, raw: finalRaw, plan },
     scan: scanResult,
     plan,
-    simulated,
+    simulated: usedSimulator,
   };
 }
 
