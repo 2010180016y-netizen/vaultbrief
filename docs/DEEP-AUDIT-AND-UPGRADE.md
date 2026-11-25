@@ -239,11 +239,47 @@ scope), and `npm test` still runs the OSS contract, so CI exercises the same gat
 typecheck → tests → build → extension contract → icon reproducibility. The new receipt
 verification is part of `npm run verify`; a run of it is recorded with the push.
 
-### Live deployment
+### Continuous integration (observed)
 
-`https://vaultbrief-bby.pages.dev` — deployed from `dist/` after the upgrade; the browser
-check, screenshots and the exact button path are recorded in the report that accompanies
-this document (files `evidence/live-pages-v1-2-*.png`).
+| Commit | Workflow | Result |
+| --- | --- | --- |
+| `d3ede30` v1.2.0 (upgrade) | `verify` | **success** (35 s) — typecheck, tests, build, extension contract, icon reproducibility |
+| `8d63d30` deps (grpc override) | `verify` | **success** (33 s) |
+
+`npm test` inside CI also runs the OSS contract; the receipt CLI is part of `npm run verify`
+and was run locally (above). `.github/workflows/verify.yml` was not modified.
+
+### Live deployment and browser check (2026-11-25 14:39–14:42 KST)
+
+Deployed to **https://vaultbrief-bby.pages.dev** (Cloudflare Pages, project `vaultbrief`,
+direct upload of the built `dist/`: 23 files, 6.87 MB zip). The browser session was the
+same one used for the previous release, so the deployment is a fresh production build of
+`8d63d30`.
+
+What was exercised, in the real browser, on the live origin:
+
+| Check | Observed |
+| --- | --- |
+| Build identity | Footer reads `VaultBrief v1.2.0`; demo banner present (no Firebase project is configured for the live demo, so every receipt is honestly stamped `simulated`). |
+| Private document → masked cloud | Hospital sample: score 100/100, 13 matches, `only in cloud`, brief produced, receipt `seq 1`, `🔒 sealed`, key `ed411c61cbb43c30`, doc `a505d4…`. |
+| Receipt verification | **Verify receipt → Verify: 7/7 checks** — digest, ECDSA P-256 signature, document fingerprint (matches the pasted document), masked-run consistency, pass count. |
+| Public document with an identifier | Newsletter: `plan: prefer in cloud · masked`; routing decision “Public document (14/100) and 4,139 characters long → cloud model, after 1 identifier is masked”; the receipt reports 1,551 characters transmitted and 119 replaced. This is the finding-1 fix, visible on the live site. |
+| Refusal | Masking off on the private sample: `plan: blocked`, “⛔ will not send”, “This document was not sent anywhere”, remedy shown, ledger unchanged. |
+| Korean document | 국문 진단서: 18 matches incl. `Korean resident registration number`, phone, licence number, postal address, named individuals, health ×12; Presidio panel lists `PERSON`, `KR_RRN`, `PHONE_NUMBER`, `LOCATION` (3 checksum-validated, 5 context-boosted); brief produced in Korean. |
+| Receipt chain | That run is `seq 2` with `prev 013dc56b…`; **Verify: 8/8 checks**, including “ledger chain — follows 013dc56bf5b6891d…”. |
+| Transport headers | `curl -I` shows the CSP allowlist, `x-content-type-options: nosniff`, `referrer-policy`, `permissions-policy`, `cross-origin-opener-policy`, and `cache-control: immutable` on hashed assets. The app renders and runs under that policy — the live run above is the proof. |
+
+Screenshots (copied out of the 48-hour `browser/` folder):
+`evidence/live-pages-v1-2-run-2026-11-25.png`,
+`evidence/live-pages-v1-2-verify-7of7-2026-11-25.png`,
+`evidence/live-pages-v1-2-public-masked-2026-11-25.png`,
+`evidence/live-pages-v1-2-refusal-2026-11-25.png`,
+`evidence/live-pages-v1-2-verify-chain-8of8-2026-11-25.png`.
+
+The live deployment is in demo mode by design (no Firebase keys are shipped); the routing,
+masking, sealing, verification and refusal logic exercised above is the same code that runs
+against a real project, and the receipt signature is produced by the browser's WebCrypto
+either way.
 
 ---
 
