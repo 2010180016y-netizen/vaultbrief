@@ -10,7 +10,7 @@ import { probeRuntime, type DeviceRuntime } from "./engine/deviceRuntime";
 import { TransformersEmbedder, type Embedder } from "./engine/embeddings";
 import { planFor, runBrief, type RunOutcome } from "./engine/engine";
 import { HybridClient } from "./engine/hybrid";
-import { analyzeDocument } from "./engine/pii";
+import { analyzeDocument, maskDocument, mergeScans } from "./engine/pii";
 import { SAMPLES } from "./engine/samples";
 import { clampThreshold } from "./engine/router";
 import { scan } from "./engine/sensitivity";
@@ -133,14 +133,26 @@ export default function App() {
   const cloudModel = overrides.cloudModel ?? config.cloudModel;
   const threshold = clampThreshold(overrides.threshold);
   const live = client !== null;
-  const scanResult = useMemo(() => (text.trim() ? scan(text) : null), [text]);
+  // Three views of the same document: the rule scan keeps the "Sensitivity
+  // scan" panel honest about which layer found what; the Presidio analysis is
+  // its own panel; and the union (rules + entities, counted by actually masking
+  // a copy) is what the router sees. Masking a copy here is cheap and makes the
+  // preview's "N identifiers are replaced" identical to the receipt's.
   const pii = useMemo(() => (text.trim() ? analyzeDocument(text) : null), [text]);
+  const scanResult = useMemo(() => (text.trim() ? scan(text) : null), [text]);
+  const maskPreview = useMemo(() => (text.trim() ? maskDocument(text) : null), [text]);
+  const routedScan = useMemo(() => {
+    if (!scanResult) return undefined;
+    if (!pii) return scanResult;
+    const merged = mergeScans(scanResult, pii);
+    return { ...merged, redactable: Math.max(merged.redactable, maskPreview?.replaced ?? 0) };
+  }, [scanResult, pii, maskPreview]);
   const plan = useMemo(
     () =>
       text.trim()
-        ? planFor({ text, policy, maskingAllowed: masking, device, threshold }, scanResult ?? undefined)
+        ? planFor({ text, policy, maskingAllowed: masking, device, threshold }, routedScan)
         : null,
-    [text, policy, masking, device, scanResult, threshold],
+    [text, policy, masking, device, routedScan, threshold],
   );
   const stale = outcome !== null && outcomeText !== null && outcomeText !== text;
 
