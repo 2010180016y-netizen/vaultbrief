@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { analyze, anonymize, applyOperator, statsFor, contextMatches } from "./presidio";
+import { maskDocument } from "./pii";
 import { brnValid, driverLicenceValid, ibanValid, luhn, rrnValid, usSsnValid } from "./checksums";
 
 const types = (text: string, threshold = 0.4) =>
@@ -147,5 +148,35 @@ describe("checksum helpers", () => {
     expect(driverLicenceValid("11-22-1234")).toBe(false);
     expect(usSsnValid("000-12-3456")).toBe(false);
     expect(types("reference 1234 5678 9012 3459 was declined")).not.toContain("CREDIT_CARD");
+  });
+});
+
+describe("Korean names beyond field labels", () => {
+  const names = (text: string) =>
+    analyze(text)
+      .filter((result) => result.entity_type === "PERSON")
+      .map((result) => text.slice(result.start, result.end));
+
+  it("finds a name that carries an honorific instead of a label", () => {
+    const text = "김민수 씨는 3일 전부터 상복부 통증을 호소했고, 이지훈 과장이 내시경을 시행했다.";
+    const found = names(text);
+    expect(found).toContain("김민수");
+    expect(found).toContain("이지훈");
+  });
+
+  it("does not turn a polite noun into a person", () => {
+    const text = "고객님께 안내드립니다. 회원님과 담당자님께서 확인하실 수 있습니다.";
+    // 고객/회원/담당 are stopwords; 담당자 is three syllables and not in the list,
+    // so the recognizer may still fire there — but it must not invent 고객/회원.
+    const found = names(text);
+    expect(found).not.toContain("고객");
+    expect(found).not.toContain("회원");
+  });
+
+  it("masks the honorific name while keeping the sentence readable", () => {
+    const { text } = maskDocument("상담자: 김민수 씨, 연락처 010-2841-7734.");
+    expect(text).not.toContain("김민수");
+    expect(text).toContain("[REDACTED:IDENTITY]");
+    expect(text).not.toContain("010-2841-7734");
   });
 });

@@ -1,8 +1,8 @@
 {
   "name": "vaultbrief",
   "private": true,
-  "version": "1.1.0",
-  "description": "VaultBrief — hybrid on-device / cloud document briefings with Firebase AI Logic, WebLLM, transformers.js and a Presidio-grade PII layer",
+  "version": "1.2.0",
+  "description": "VaultBrief — hybrid on-device / cloud document briefings with Firebase AI Logic, WebLLM, transformers.js, a Presidio-grade PII layer and verifiable privacy receipts",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,8 +12,9 @@
     "test": "node scripts/verify-oss.mjs && vitest run",
     "verify:extension": "node scripts/verify-extension.mjs",
     "verify:sdk": "node scripts/verify-sdk-path.mjs",
+    "verify:receipt": "node scripts/verify-receipt.mjs --receipt evidence/receipt-sample.json --document evidence/receipt-sample-document.txt --previous bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "verify:oss": "node scripts/verify-oss.mjs",
-    "verify": "npm run typecheck && npm test && npm run build && npm run verify:extension && npm run verify:oss",
+    "verify": "npm run typecheck && npm test && npm run build && npm run verify:extension && npm run verify:receipt && npm run verify:oss",
     "icons": "node scripts/make-icons.mjs"
   },
   "license": "Apache-2.0",

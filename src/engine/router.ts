@@ -77,6 +77,12 @@ export function decideRoute(input: RouteInput): RouteOutcome {
   const sensitive = scan.score >= threshold;
   const length = text.trim().length;
   const notes: string[] = [];
+  // The invariant is about identifiers, not about the score: a public article
+  // that happens to contain one email address must not carry it to the cloud
+  // just because the document as a whole scored 14/100.
+  const identifiers = scan.redactable;
+  const identifierNote = `${identifiers} identifier${identifiers === 1 ? "" : "s"}`;
+  const identifierVerb = identifiers === 1 ? "is" : "are";
 
   const blocked = (reason: string, extra: string[]): RouteOutcome => ({
     policy,
@@ -109,6 +115,16 @@ export function decideRoute(input: RouteInput): RouteOutcome {
     );
   };
 
+  /** Shared refusal: identifiers would leave unmasked and masking is off. */
+  const maskingRefusal = (): RouteOutcome =>
+    blocked(
+      `This document carries ${identifierNote} that would leave the device unmasked, and masking is switched off.`,
+      [
+        "Turn “Mask identifiers before cloud” on to send a placeholder-only copy, or brief it on the device.",
+        "VaultBrief never sends identified text to the cloud — no policy setting relaxes this.",
+      ],
+    );
+
   const cloudRoute = (
     mode: InferenceModeName,
     reason: string,
@@ -118,7 +134,7 @@ export function decideRoute(input: RouteInput): RouteOutcome {
     if (redactBeforeSending) {
       notes.push(
         scan.redactable > 0
-          ? `${scan.redactable} identifier${scan.redactable === 1 ? "" : "s"} are replaced with typed placeholders before the request leaves the device.`
+          ? `${scan.redactable} identifier${scan.redactable === 1 ? "" : "s"} ${scan.redactable === 1 ? "is" : "are"} replaced with typed placeholders before the request leaves the device.`
           : "Masking is on, but this document contains no maskable identifier — only topic words.",
       );
       residualNote();
@@ -159,6 +175,29 @@ export function decideRoute(input: RouteInput): RouteOutcome {
     if (!singlePass && !deviceReady) {
       notes.push("Nothing was sent: device-only policy with no local model.");
     }
+
+    // PREFER_ON_DEVICE falls back to the cloud when no local model exists. That
+    // fallback is still a cloud call, so it obeys the identifier rule too.
+    if (expectedSource === "in_cloud" && identifiers > 0) {
+      if (!maskingAllowed) return maskingRefusal();
+      notes.push(
+        `No local model is ready, so ${identifierNote} ${identifierVerb} masked and only that copy goes to the cloud.`,
+      );
+      residualNote();
+      return {
+        policy,
+        mode,
+        expectedSource,
+        redactBeforeSending: true,
+        deviceReady,
+        chunked,
+        estimatedChunks,
+        reason,
+        notes,
+        blocked: false,
+        sensitive,
+      };
+    }
     if (expectedSource === "in_cloud" && !deviceReady) {
       notes.push("No local model is ready, so the SDK will answer this one in the cloud.");
     }
@@ -188,9 +227,11 @@ export function decideRoute(input: RouteInput): RouteOutcome {
   }
 
   if (policy === "cloud_quality") {
-    if (sensitive && !maskingAllowed) {
+    if ((sensitive || identifiers > 0) && !maskingAllowed) {
       return blocked(
-        `This document scores ${scan.score}/100 on the sensitivity scan and masking is turned off.`,
+        sensitive
+          ? `This document scores ${scan.score}/100 on the sensitivity scan and masking is turned off.`
+          : `This document carries ${identifierNote} and masking is turned off.`,
         [
           "Turn masking on to send a placeholder-only copy to the cloud, or switch to Auto to keep it on-device.",
           "VaultBrief never sends identified text to the cloud.",
@@ -202,7 +243,7 @@ export function decideRoute(input: RouteInput): RouteOutcome {
       sensitive
         ? "Cloud quality policy with the privacy boundary on: only the masked copy leaves the device."
         : "Cloud quality policy: the most capable model is used for this public document.",
-      sensitive,
+      sensitive || identifiers > 0,
     );
   }
 
@@ -224,7 +265,7 @@ export function decideRoute(input: RouteInput): RouteOutcome {
         ],
       );
     }
-    if (scan.redactable === 0) {
+    if (identifiers === 0) {
       // Masking would replace nothing: the copy is the original document. Auto
       // does not send that to the cloud; the user can still choose Cloud quality.
       return blocked(
@@ -237,16 +278,19 @@ export function decideRoute(input: RouteInput): RouteOutcome {
     }
     return cloudRoute(
       "only_in_cloud",
-      `Sensitive document (${scan.score}/100) with no local model → sent only after ${scan.redactable} identifier${scan.redactable === 1 ? "" : "s"} are masked.`,
+      `Sensitive document (${scan.score}/100) with no local model → sent only after ${identifierNote} ${identifierVerb} masked.`,
       true,
     );
   }
 
   if (length > DEVICE_SINGLE_PASS_LIMIT) {
+    if (identifiers > 0 && !maskingAllowed) return maskingRefusal();
     return cloudRoute(
       "prefer_in_cloud",
-      `Public document (${scan.score}/100) and ${length.toLocaleString()} characters long → cloud model for long-form synthesis.`,
-      false,
+      identifiers > 0
+        ? `Public document (${scan.score}/100) and ${length.toLocaleString()} characters long → cloud model, after ${identifierNote} ${identifierVerb} masked.`
+        : `Public document (${scan.score}/100) and ${length.toLocaleString()} characters long → cloud model for long-form synthesis.`,
+      identifiers > 0,
     );
   }
 

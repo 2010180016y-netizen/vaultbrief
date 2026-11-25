@@ -118,3 +118,42 @@ describe("router edge cases", () => {
     expect(outcome.notes.join(" ")).toMatch(/Health information/);
   });
 });
+
+describe("identifier-level invariant", () => {
+  // A document that is public by score but carries an identifier. The old gate
+  // was the score, so this text would have been uploaded unmasked.
+  const publicWithEmail = "The committee approved the new park on Tuesday. Media enquiries: press@city.example.";
+
+  it("masks an identifier even when the document is not sensitive", () => {
+    const outcome = route(publicWithEmail, { deviceReady: false });
+    expect(outcome.sensitive).toBe(false);
+    expect(outcome.expectedSource).toBe("in_cloud");
+    expect(outcome.redactBeforeSending).toBe(true);
+    expect(outcome.notes.join(" ")).toMatch(/masked and only that copy goes to the cloud/);
+  });
+
+  it("refuses the cloud fallback when masking is off and an identifier is present", () => {
+    const outcome = route(publicWithEmail, { deviceReady: false, maskingAllowed: false });
+    expect(outcome.blocked).toBe(true);
+    expect(outcome.reason).toMatch(/identifier/);
+    expect(outcome.notes.join(" ")).toMatch(/never sends identified text/);
+  });
+
+  it("applies to the explicit cloud-quality policy as well", () => {
+    const outcome = route(publicWithEmail, { deviceReady: true, policy: "cloud_quality", maskingAllowed: false });
+    expect(outcome.blocked).toBe(true);
+  });
+
+  it("does not mask a public document that carries no identifier", () => {
+    const outcome = route(publicShort, { deviceReady: false });
+    expect(outcome.expectedSource).toBe("in_cloud");
+    expect(outcome.redactBeforeSending).toBe(false);
+    expect(outcome.blocked).toBe(false);
+  });
+
+  it("keeps a short public document on the device when one is available", () => {
+    const outcome = route(publicWithEmail, { deviceReady: true });
+    expect(outcome.expectedSource).toBe("on_device");
+    expect(outcome.redactBeforeSending).toBe(false);
+  });
+});

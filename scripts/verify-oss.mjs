@@ -111,6 +111,25 @@ if (existsSync(oraclePath) && existsSync(corpusPath)) {
   check("docs/presidio-oracle.json exists", false, "run scripts/presidio-oracle.py");
 }
 
+/* ---- deployment headers ---------------------------------------------- */
+const headersPath = path.join(root, "public/_headers");
+check("deployment headers are committed", existsSync(headersPath), "public/_headers → dist/_headers");
+if (existsSync(headersPath)) {
+  const headers = readFileSync(headersPath, "utf8");
+  check("a Content-Security-Policy is deployed", /Content-Security-Policy:/i.test(headers), "one explicit allowlist");
+  check(
+    "the policy names no wildcard script source",
+    !/script-src[^;]*\s\*/.test(headers),
+    "script-src is an explicit list",
+  );
+  check(
+    "the extension may frame the app, nobody else",
+    /frame-ancestors 'self' chrome-extension:/.test(headers),
+    "frame-ancestors 'self' chrome-extension:",
+  );
+  check("MIME sniffing is off", /X-Content-Type-Options:\s*nosniff/i.test(headers), "nosniff");
+}
+
 /* ---- bundle policy --------------------------------------------------- */
 const viteConfig = readFileSync(path.join(root, "vite.config.ts"), "utf8");
 check(

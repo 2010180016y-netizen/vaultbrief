@@ -74,6 +74,8 @@ interface HybridModules extends FirebaseModules {
   InferenceMode: Record<InferenceModeName, InferenceModeName>;
 }
 
+export type { FirebaseModules, HybridModules, GenerativeModelLike };
+
 let cached: HybridClient | null = null;
 let connecting: Promise<HybridClient> | null = null;
 
@@ -157,7 +159,8 @@ export function hybridParams(mode: InferenceModeName, cloudModel: string): Hybri
 export class HybridClient {
   /** Model objects are cached per (mode, cloud model): the cloud model name is runtime configurable. */
   private models = new Map<string, GenerativeModelLike>();
-  private deviceReady = false;
+  /** Device modes whose on-device model has been initialised in this session. */
+  private preparedModes = new Set<InferenceModeName>();
 
   private constructor(
     private readonly sdk: HybridModules,
@@ -165,7 +168,11 @@ export class HybridClient {
     private readonly defaultCloudModel: string,
   ) {}
 
-  static async connect(config: AppConfig): Promise<HybridClient> {
+  static async connect(
+    config: AppConfig,
+    /** Test seam: a fake SDK with the same surface. */
+    loader: () => Promise<HybridModules> = loadSdk,
+  ): Promise<HybridClient> {
     if (cached) return cached;
     if (connecting) return connecting;
     if (!config.firebase) {
@@ -184,7 +191,7 @@ export class HybridClient {
     }
 
     connecting = (async () => {
-      const sdk = await loadSdk();
+      const sdk = await loader();
       const appConfig = config.firebase!;
 
       // The debug provider must be configured before App Check initialises.
@@ -272,18 +279,28 @@ export class HybridClient {
   /**
    * Must be called from a user gesture. Reports download progress for the
    * on-device model; the promise resolves when the model is usable.
+   *
+   * Both on-device modes are initialised: `PREFER_ON_DEVICE` and
+   * `ONLY_ON_DEVICE` are separate model objects in the SDK, and preparing only
+   * the one used to probe would leave the mode the router actually selects
+   * unprepared — a 403/“model not ready” on the first private document.
    */
   async prepareDevice(onProgress?: (value: number) => void): Promise<void> {
-    // PREFER_ON_DEVICE is enough to obtain a model object that owns the device
-    // session, regardless of the mode used for the actual request.
-    const model = this.model("prefer_on_device");
-    try {
-      await model.initializeDeviceModel((value) => onProgress?.(value));
-      this.deviceReady = true;
-    } catch (error) {
+    const modes: InferenceModeName[] = ["prefer_on_device", "only_on_device"];
+    let lastError: unknown = null;
+    for (const mode of modes) {
+      const model = this.model(mode);
+      try {
+        await model.initializeDeviceModel((value) => onProgress?.(value));
+        this.preparedModes.add(mode);
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    if (this.preparedModes.size === 0) {
       throw new HybridError(
         "The on-device model could not be prepared.",
-        /user|gesture|activation/i.test((error as Error).message)
+        /user|gesture|activation/i.test((lastError as Error)?.message ?? "")
           ? "Press the download button itself: Chrome only starts a download from a real click."
           : "Check that Chrome 139+ is used with the Prompt API enabled, and that there is disk space for the model.",
         "device/prepare",
@@ -292,7 +309,7 @@ export class HybridClient {
   }
 
   get isDevicePrepared(): boolean {
-    return this.deviceReady;
+    return this.preparedModes.size > 0;
   }
 
   async generate({ prompt, mode, cloudModel, signal, timeoutMs }: GenerateArgs): Promise<GenerateOutcome> {
@@ -300,6 +317,20 @@ export class HybridClient {
       throw new HybridError("The request was stopped before it started.", "Nothing was sent.", "request/aborted");
     }
     const model = this.model(mode, cloudModel);
+    // A device mode that was never prepared still gets one attempt: when the
+    // model is already installed this resolves immediately. When it is not,
+    // the SDK's own error is translated into "press Prepare first" rather than
+    // a raw failure in the middle of a run.
+    if (mode === "only_on_device" || mode === "prefer_on_device") {
+      if (!this.preparedModes.has(mode)) {
+        try {
+          await model.initializeDeviceModel();
+          this.preparedModes.add(mode);
+        } catch {
+          // Fall through: the generate call will surface a translated error.
+        }
+      }
+    }
     const options: SingleRequestOptionsLike = {
       timeout: timeoutMs ?? REQUEST_TIMEOUT_MS,
       ...(signal ? { signal } : {}),

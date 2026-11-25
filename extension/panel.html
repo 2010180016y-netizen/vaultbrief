@@ -86,6 +86,23 @@
       #status.err {
         color: #ff9b9b;
       }
+      #receipt {
+        display: none;
+        padding: 6px 12px;
+        font-size: 11px;
+        line-height: 150%;
+        color: #9fe7d2;
+        background: rgba(28, 214, 160, 0.06);
+        border-bottom: 1px solid #16233a;
+        font-family: ui-monospace, monospace;
+      }
+      #receipt.on {
+        display: block;
+      }
+      #copyReceipt {
+        margin-left: 6px;
+        font-size: 10.5px;
+      }
       #frameNote {
         display: none;
         padding: 8px 12px;
@@ -102,6 +119,7 @@
         <strong>VaultBrief</strong>
         <span id="status" class="muted" role="status">starting…</span>
         <span style="flex: 1"></span>
+        <button id="copyReceipt" class="link" type="button" hidden>copy</button>
         <button id="grab" disabled>Brief this page</button>
       </div>
       <div class="row">
@@ -110,6 +128,7 @@
         <button id="open" class="link" type="button">open in tab</button>
       </div>
     </header>
+    <div id="receipt" role="status"></div>
     <div id="frameNote">
       The app did not load inside this panel. Some hosts block being framed — press “open in tab”, then use
       “Brief this page” there.

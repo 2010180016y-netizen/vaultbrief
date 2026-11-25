@@ -88,7 +88,7 @@ Annex A: contact list and site access rules. Two warehouses are in scope in the 
   {
     id: "brief",
     label: "Public policy newsletter",
-    blurb: "Long and public: routed to the cloud for long-form synthesis.",
+    blurb: "Long and public: cloud synthesis, after its footer address is masked.",
     text: `The Grid Letter — Issue 412
 
 Why the next two years of data-centre growth will be decided by substations, not chips

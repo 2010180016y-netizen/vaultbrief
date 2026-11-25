@@ -90,6 +90,29 @@ export interface Brief {
   flags: string[];
 }
 
+export interface ReceiptIntegrity {
+  /** Format version of the integrity block itself. */
+  version: number;
+  /** `SHA-256` when only the digest could be produced, `ECDSA-P256-SHA256` when signed. */
+  alg: "SHA-256" | "ECDSA-P256-SHA256";
+  signed: boolean;
+  /** SHA-256 (hex) of the canonical receipt payload — i.e. this receipt without `integrity`. */
+  digest: string;
+  /** SHA-256 (hex) of the document this receipt was issued for. The text itself is never stored. */
+  documentSha256: string;
+  issuedAt: string;
+  /** Chain position within this browser's ledger. */
+  seq: number;
+  /** Digest of the previous receipt in the chain, when there was one. */
+  prev?: string;
+  /** Short fingerprint of the signing key (first 16 hex of SHA-256 over the SPKI). */
+  keyId?: string;
+  /** Base64 SubjectPublicKeyInfo of the per-browser signing key, so a verifier needs nothing else. */
+  publicKey?: string;
+  /** Base64 ECDSA P-256 signature over the canonical payload bytes. */
+  signature?: string;
+}
+
 export interface RunReceipt {
   id: string;
   startedAt: string;
@@ -134,6 +157,13 @@ export interface RunReceipt {
     embedder: string | null;
     dedupedChunks: number;
   };
+  /** Pass-by-pass route, so a mixed run cannot be summarised as one side. */
+  split?: {
+    onDevicePasses: number;
+    cloudPasses: number;
+  };
+  /** Tamper-evident seal: digest, document fingerprint, optional signature and chain link. */
+  integrity?: ReceiptIntegrity;
 }
 
 export interface RunResult {

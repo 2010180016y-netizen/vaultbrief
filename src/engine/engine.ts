@@ -3,6 +3,7 @@ import { extractiveBrief } from "./demo";
 import { dedupeChunks, dedupePoints, semanticSensitivity, type Embedder, type SemanticSignal } from "./embeddings";
 import { HybridClient, HybridError } from "./hybrid";
 import { mergeScans, maskDocument } from "./pii";
+import { sealReceipt } from "./receipt";
 import { cloudPrompt, mergePrompt, onDevicePrompt, parseBrief } from "./prompt";
 import {
   CLOUD_CHUNK_BUDGET,
@@ -44,6 +45,10 @@ export interface RunInput {
   timeoutMs?: number;
   onProgress?: (progress: Progress) => void;
   titleFallback?: string;
+  /** Digest of the previous receipt in this browser's ledger (chain link). */
+  previousDigest?: string;
+  /** 1-based position of this receipt in the ledger. */
+  sequence?: number;
 }
 
 export type RunOutcome =
@@ -209,7 +214,10 @@ export async function runBrief(input: RunInput): Promise<RunOutcome> {
   let cloudChars = 0;
   let tokensIn = 0;
   let tokensOut = 0;
-  let actualSource: InferenceSourceName = plan.expectedSource;
+  // Every pass (document or merge) records where it actually ran: a mixed run
+  // must never be summarised as if only its last pass existed.
+  const seenSources = new Set<InferenceSourceName>();
+  const noteSource = (source: InferenceSourceName) => seenSources.add(source);
   let cloudPasses = 0;
   let devicePasses = 0;
   let deviceModel = "gemini-nano";
@@ -301,7 +309,7 @@ export async function runBrief(input: RunInput): Promise<RunOutcome> {
       });
 
       const outcome = await call(promptFor(chunk), chunk);
-      actualSource = outcome.source;
+      noteSource(outcome.source);
       if (outcome.source === "in_cloud") {
         cloudChars += chunk.length;
         cloudPasses += 1;
@@ -324,7 +332,7 @@ export async function runBrief(input: RunInput): Promise<RunOutcome> {
         for (const group of groups) {
           if (signal?.aborted) throw new CancelledError();
           const outcome = await callMerge(group);
-          actualSource = outcome.source;
+          noteSource(outcome.source);
           next.push(outcome.text);
         }
         current = next;
@@ -356,6 +364,10 @@ export async function runBrief(input: RunInput): Promise<RunOutcome> {
         "The request failed before a brief was produced. Nothing is retried automatically.",
     };
   }
+
+  // Where the run actually happened: the cloud wins if any pass reached it,
+  // because that is the fact a reader of the receipt needs.
+  const actualSource: InferenceSourceName = seenSources.has("in_cloud") ? "in_cloud" : "on_device";
 
   let brief = parseBrief(finalRaw, input.titleFallback ?? "Brief");
   if (embedder?.ready && brief.points.length > 1) {
@@ -453,12 +465,29 @@ export async function runBrief(input: RunInput): Promise<RunOutcome> {
       embedder: embedder?.ready ? embedder.id : null,
       dedupedChunks,
     },
+    split: { onDevicePasses: devicePasses, cloudPasses },
   };
+
+  // Seal after everything else is final: the digest covers the receipt exactly
+  // as it is shown, so a field edited later no longer verifies.
+  let sealed = receipt;
+  try {
+    sealed = await sealReceipt(receipt, {
+      documentText: trimmed,
+      prev: input.previousDigest,
+      seq: input.sequence,
+    });
+  } catch (error) {
+    sealed = {
+      ...receipt,
+      notes: [...receipt.notes, `Receipt sealing failed: ${(error as Error).message}`],
+    };
+  }
 
   progress({ phase: "done", message: "Brief ready." });
   return {
     status: "ok",
-    result: { brief, receipt, raw: finalRaw, plan },
+    result: { brief, receipt: sealed, raw: finalRaw, plan },
     scan: scanResult,
     plan,
     simulated: usedSimulator,

@@ -1,0 +1,28 @@
+# Cloudflare Pages headers for VaultBrief.
+#
+# A product whose argument is "your document stays here" has to look like it
+# takes that seriously at the transport layer too:
+#
+#   - no MIME sniffing, no referrer leakage, no camera/mic/geolocation;
+#   - a Content-Security-Policy that names every origin the app may talk to.
+#     The list is deliberately explicit: Firebase AI Logic, Firestore, Auth,
+#     Remote Config, App Check, reCAPTCHA Enterprise, jsDelivr (onnxruntime-web)
+#     and Hugging Face (WebLLM / transformers.js weights). Anything else is
+#     blocked, so a compromised dependency cannot quietly POST a document
+#     somewhere new.
+#   - frame-ancestors allows the Chrome side panel (chrome-extension:) and the
+#     app's own origin, nothing else: the extension embeds the app, and no other
+#     site may.
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
+  Content-Security-Policy: default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'none'; script-src 'self' 'wasm-unsafe-eval' https://www.google.com https://www.gstatic.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' blob: data: https://cdn.jsdelivr.net https://huggingface.co https://*.huggingface.co https://*.hf.co https://firebasevertexai.googleapis.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firebaseremoteconfig.googleapis.com https://firebaseinstallations.googleapis.com https://content-firebaseappcheck.googleapis.com https://www.google.com https://www.gstatic.com wss://firestore.googleapis.com; worker-src 'self' blob:; manifest-src 'self'; frame-src https://www.google.com https://recaptchaenterprise.googleapis.com; frame-ancestors 'self' chrome-extension:
+
+/*.js
+  Cache-Control: public, max-age=31536000, immutable
+
+/*.css
+  Cache-Control: public, max-age=31536000, immutable

@@ -2,8 +2,14 @@ rules_version = '2';
 
 // Receipts are written by the app after each brief and are readable only by the
 // anonymous user that wrote them. No document text is ever stored here: a
-// receipt holds counts (characters, tokens, passes) and short notes, nothing
-// that could identify the document's contents.
+// receipt holds counts (characters, tokens, passes), a SHA-256 fingerprint of
+// the document and short notes — never the document itself.
+//
+// The key list below is not decorative: Firestore rejects a write carrying a key
+// missing from `hasOnly`, so when the receipt grew fields (pii, semantic, local,
+// split, integrity) the optional mirror silently stopped working until this list
+// was updated. `receipt.test.ts` parses this file and fails if the app writes a
+// field that is not allowed here.
 service cloud.firestore {
   match /databases/{database}/documents {
     match /receipts/{receiptId} {
@@ -13,6 +19,7 @@ service cloud.firestore {
                          'id', 'startedAt', 'policy', 'requestedMode', 'source', 'simulated',
                          'latencyMs', 'inputChars', 'cloudChars', 'stayedLocalChars',
                          'tokensIn', 'tokensOut', 'chunks', 'redacted', 'model', 'notes',
+                         'pii', 'semantic', 'local', 'split', 'integrity',
                          'uid', 'createdAt'
                        ])
                     // Shape and size limits: an anonymous client must not be able
@@ -37,8 +44,10 @@ service cloud.firestore {
                     && request.resource.data.inputChars <= 100000
                     && request.resource.data.cloudChars is int
                     && request.resource.data.cloudChars >= 0
+                    && request.resource.data.cloudChars <= 100000
                     && request.resource.data.stayedLocalChars is int
                     && request.resource.data.stayedLocalChars >= 0
+                    && request.resource.data.stayedLocalChars <= 100000
                     && request.resource.data.tokensIn is int
                     && request.resource.data.tokensIn >= 0
                     && request.resource.data.tokensOut is int
@@ -47,7 +56,63 @@ service cloud.firestore {
                     && request.resource.data.chunks >= 0
                     && request.resource.data.chunks <= 200
                     && request.resource.data.notes is list
-                    && request.resource.data.notes.size() <= 40;
+                    && request.resource.data.notes.size() <= 40
+                    // Optional blocks are validated only when present: a receipt
+                    // from an older build (or from a run without the local
+                    // embedder) has no `semantic` map, and that must still write.
+                    && (!('pii' in request.resource.data) || (
+                         request.resource.data.pii.keys().hasOnly([
+                           'engine', 'entities', 'validated', 'contextBoosted', 'score', 'masked'
+                         ])
+                         && request.resource.data.pii.entities is int
+                         && request.resource.data.pii.entities >= 0
+                         && request.resource.data.pii.entities <= 10000
+                       ))
+                    && (!('semantic' in request.resource.data) || (
+                         request.resource.data.semantic.keys().hasOnly([
+                           'score', 'similarity', 'category', 'confident'
+                         ])
+                         && request.resource.data.semantic.score is int
+                         && request.resource.data.semantic.score >= 0
+                         && request.resource.data.semantic.score <= 100
+                         && request.resource.data.semantic.confident is bool
+                       ))
+                    && (!('local' in request.resource.data) || (
+                         request.resource.data.local.keys().hasOnly(['embedder', 'dedupedChunks'])
+                         && request.resource.data.local.dedupedChunks is int
+                         && request.resource.data.local.dedupedChunks >= 0
+                       ))
+                    && (!('split' in request.resource.data) || (
+                         request.resource.data.split.keys().hasOnly(['onDevicePasses', 'cloudPasses'])
+                         && request.resource.data.split.onDevicePasses is int
+                         && request.resource.data.split.onDevicePasses >= 0
+                         && request.resource.data.split.onDevicePasses <= 200
+                         && request.resource.data.split.cloudPasses is int
+                         && request.resource.data.split.cloudPasses >= 0
+                         && request.resource.data.split.cloudPasses <= 200
+                       ))
+                    // The seal: fixed-size hashes, an optional SPKI key and a
+                    // 64-byte ECDSA signature. All strings, all bounded.
+                    && (!('integrity' in request.resource.data) || (
+                         request.resource.data.integrity.keys().hasOnly([
+                           'version', 'alg', 'signed', 'digest', 'documentSha256', 'issuedAt',
+                           'seq', 'prev', 'keyId', 'publicKey', 'signature'
+                         ])
+                         && request.resource.data.integrity.version is int
+                         && request.resource.data.integrity.signed is bool
+                         && request.resource.data.integrity.seq is int
+                         && request.resource.data.integrity.seq >= 1
+                         && request.resource.data.integrity.digest is string
+                         && request.resource.data.integrity.digest.size() == 64
+                         && request.resource.data.integrity.documentSha256 is string
+                         && request.resource.data.integrity.documentSha256.size() == 64
+                         && request.resource.data.integrity.issuedAt is string
+                         && request.resource.data.integrity.issuedAt.size() <= 40
+                         && request.resource.data.integrity.publicKey is string
+                         && request.resource.data.integrity.publicKey.size() <= 400
+                         && request.resource.data.integrity.signature is string
+                         && request.resource.data.integrity.signature.size() <= 200
+                       ));
       allow read: if request.auth != null && resource.data.uid == request.auth.uid;
       allow update, delete: if false;
     }

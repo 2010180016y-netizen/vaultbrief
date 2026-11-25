@@ -122,6 +122,34 @@ check("panel.js hands the document to the app with a target origin", () => {
   return "message + origin + load queue present";
 });
 
+check("panel.js and the app agree on the handshake protocol", () => {
+  const js = read(join(ext, "panel.js"));
+  const app = read(join(root, "src/engine/bridge.ts"));
+  const panelProtocol = Number(js.match(/const PROTOCOL = (\d+);/)?.[1]);
+  const appProtocol = Number(app.match(/BRIDGE_PROTOCOL = (\d+)/)?.[1]);
+  must(Number.isFinite(panelProtocol), "panel.js must declare PROTOCOL");
+  must(Number.isFinite(appProtocol), "bridge.ts must declare BRIDGE_PROTOCOL");
+  must(panelProtocol === appProtocol, `protocol mismatch: panel ${panelProtocol}, app ${appProtocol}`);
+  for (const type of ["vaultbrief:hello", "vaultbrief:ready", "vaultbrief:receipt"]) {
+    must(js.includes(type), `panel.js never handles ${type}`);
+    must(app.includes(type), `bridge.ts never defines ${type}`);
+  }
+  must(/data\.protocol !== PROTOCOL/.test(js), "the panel must refuse a protocol mismatch");
+  must(/event\.source !== appWindow\(\)/.test(js), "the panel must only listen to its own iframe");
+  must(/event\.origin !== appOrigin\(\)/.test(js), "the panel must check the iframe origin");
+  must(/showReceipt\(/.test(js), "the panel must render the receipt summary");
+  must(/id="receipt"/.test(read(join(ext, "panel.html"))), "panel.html needs a receipt line");
+  return `protocol ${panelProtocol}, hello/ready/receipt, source+origin checked`;
+});
+
+check("the panel does not collect more than it needs", () => {
+  const js = read(join(ext, "panel.js"));
+  must(/MAX_CHARS = 20000/.test(js), "the document cap must stay explicit");
+  must(!/document\.cookie/.test(js), "the reader must not touch cookies");
+  must(!/fetch\(|XMLHttpRequest/.test(js), "the reader must not make network calls");
+  return "20,000-character cap, no cookies, no network";
+});
+
 check("background service worker opens the side panel", () => {
   const js = read(join(ext, "background.js"));
   must(/sidePanel\.setPanelBehavior/.test(js), "setPanelBehavior call is missing");

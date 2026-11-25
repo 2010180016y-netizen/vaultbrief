@@ -10,6 +10,8 @@ interface Props {
   plan: RouteOutcome | null;
   live: boolean;
   stale: boolean;
+  /** Opens the receipt verifier (digest, signature, document binding, chain). */
+  onVerify: () => void;
 }
 
 function routeName(source: string) {
@@ -68,7 +70,7 @@ function copyToClipboard(text: string): Promise<void> {
   });
 }
 
-export function BriefPanel({ outcome, running, progress, plan, live, stale }: Props) {
+export function BriefPanel({ outcome, running, progress, plan, live, stale, onVerify }: Props) {
   const [copied, setCopied] = useState<"idle" | "ok" | "failed">("idle");
 
   const copy = async (text: string) => {
@@ -279,7 +281,30 @@ export function BriefPanel({ outcome, running, progress, plan, live, stale }: Pr
                     </div>
                   </div>
                 )}
+                {receipt.split && (receipt.split.onDevicePasses > 0 && receipt.split.cloudPasses > 0) && (
+                  <div className="receipt-cell">
+                    <div className="k">Passes</div>
+                    <div className="v">
+                      {receipt.split.onDevicePasses} device · {receipt.split.cloudPasses} cloud
+                    </div>
+                  </div>
+                )}
               </div>
+              {receipt.integrity && (
+                <div className="receipt-integrity">
+                  <span className={`seal ${receipt.integrity.signed ? "signed" : "digest"}`}>
+                    {receipt.integrity.signed ? "🔒 sealed" : "◈ digest"}
+                  </span>
+                  <span className="mono">seq {receipt.integrity.seq}</span>
+                  <span className="mono">key {receipt.integrity.keyId ?? "—"}</span>
+                  <span className="mono" title={receipt.integrity.documentSha256}>
+                    doc {receipt.integrity.documentSha256.slice(0, 16)}…
+                  </span>
+                  <button className="ghost verify" onClick={onVerify} type="button">
+                    Verify receipt
+                  </button>
+                </div>
+              )}
               <div className="receipt-notes">
                 {receipt.notes.map((note) => (
                   <p key={note}>{note}</p>

@@ -43,6 +43,36 @@ const DATE = /(?<!\d)\d{4}[-/.]\d{1,2}[-/.]\d{1,2}(?!\d)/g;
 /** Korean field labels: the value follows the label, so the label is genuine context. */
 const KR_NAME = /(?:성명|이름|환자명|수진자|담당\s*의사|신청인|대표자|근로자|직원|보호자)\s*[:：]?\s*([가-힣]{2,4})/g;
 
+/**
+ * A Korean name followed by an honorific or a job title (“김민수 씨”, “이지훈 과장”).
+ * Korean prose rarely labels a name — it appends one of these instead. Common
+ * nouns that take the same suffix (고객님, 환자분, 회원님…) are excluded: a
+ * recognizer that labels every polite noun as a person is worse than none.
+ */
+const KR_HONORIFIC_NAME =
+  /([가-힣]{2,4})\s*(?:씨|님|과장|부장|차장|대리|팀장|실장|원장|박사|교수|사장)(?=[\s,.·:;!?)\]'"”’]|$|은|는|이|가|을|를|의|께|도|만|와|과|에)/g;
+const KR_NAME_STOPWORDS = new Set([
+  "고객",
+  "환자",
+  "회원",
+  "선생",
+  "부모",
+  "보호",
+  "담당",
+  "관계",
+  "직원",
+  "사용",
+  "신청",
+  "대표",
+  "모든",
+  "여러",
+  "우리",
+  "저희",
+  "이번",
+  "다음",
+  "해당",
+]);
+
 /** Case-insensitive rendering of a keyword, so a label can start a sentence. */
 const ci = (word: string) =>
   [...word]
@@ -226,10 +256,13 @@ export const RECOGNIZERS: RecognizerDefinition[] = [
     label: "Named individual",
     patterns: [
       { name: "kr-name", regex: KR_NAME, score: 0.75, group: 1 },
+      { name: "kr-honorific", regex: KR_HONORIFIC_NAME, score: 0.65, group: 1 },
       { name: "en-name", regex: EN_NAME, score: 0.8, group: 1 },
       { name: "en-title", regex: EN_TITLE_NAME, score: 0.6, group: 1 },
     ],
     context: ["성명", "이름", "환자", "의사", "담당", "name", "patient", "doctor", "signed"],
+    validate: (value) =>
+      KR_NAME_STOPWORDS.has(value.trim()) ? { valid: false, score: 0.2, note: "polite noun, not a name" } : { valid: true },
     weight: 26,
     redactable: true,
   },

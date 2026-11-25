@@ -12,6 +12,8 @@ interface Props {
   /** Live threshold (Remote Config can change it). */
   threshold: number;
   remoteError?: string;
+  /** Opens the receipt verifier for the latest receipt. */
+  onVerifyReceipt: () => void;
   onClearLedger: () => void;
 }
 
@@ -27,7 +29,7 @@ function timeOf(iso: string): string {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-export function ConsolePanel({ scan, pii, plan, ledger, threshold, remoteError, onClearLedger }: Props) {
+export function ConsolePanel({ scan, pii, plan, ledger, threshold, remoteError, onVerifyReceipt, onClearLedger }: Props) {
   const summary = summarize(ledger);
 
   return (
@@ -163,6 +165,9 @@ export function ConsolePanel({ scan, pii, plan, ledger, threshold, remoteError, 
         <div className="panel-head">
           <h2>Ledger</h2>
           <div className="spacer" />
+          <button className="ghost" style={{ padding: "3px 8px", fontSize: 11 }} onClick={onVerifyReceipt}>
+            verify
+          </button>
           {ledger.length > 0 && (
             <button className="ghost" style={{ padding: "3px 8px", fontSize: 11 }} onClick={onClearLedger}>
               clear

@@ -1045,3 +1045,152 @@ textarea {
     transform: rotate(360deg);
   }
 }
+
+/* ---- verifiable receipt ------------------------------------------------ */
+
+.receipt-integrity {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 9px 12px;
+  border-top: 1px solid var(--line-soft);
+  background: rgba(61, 220, 151, 0.035);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.receipt-integrity .seal {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid rgba(61, 220, 151, 0.35);
+  color: var(--device);
+  background: rgba(61, 220, 151, 0.08);
+}
+
+.receipt-integrity .seal.digest {
+  color: var(--cloud);
+  border-color: rgba(245, 182, 84, 0.35);
+  background: rgba(245, 182, 84, 0.08);
+}
+
+.receipt-integrity .mono {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--dim);
+}
+
+.receipt-integrity .verify {
+  margin-left: auto;
+  padding: 3px 9px;
+  font-size: 11px;
+}
+
+.verifier {
+  width: min(760px, 100%);
+}
+
+.verifier-lede {
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.verifier-json {
+  min-height: 190px;
+}
+
+.verifier-doc {
+  min-height: 90px;
+}
+
+.verifier-error {
+  margin-top: 12px;
+  color: #ffb0b0;
+  font-size: 12px;
+}
+
+.verifier-result {
+  margin-top: 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  padding: 12px;
+  background: #070d17;
+}
+
+.verifier-result.ok {
+  border-color: rgba(61, 220, 151, 0.35);
+}
+
+.verifier-result.bad {
+  border-color: rgba(255, 107, 107, 0.35);
+}
+
+.verifier-verdict {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.verifier-result.ok .verifier-verdict {
+  color: var(--device);
+}
+
+.verifier-result.bad .verifier-verdict {
+  color: var(--blocked);
+}
+
+.verifier-verdict span {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--dim);
+}
+
+.verifier-checks {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.verifier-checks li {
+  display: grid;
+  grid-template-columns: 14px 150px minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.verifier-checks li.ok span {
+  color: var(--device);
+}
+
+.verifier-checks li.bad span {
+  color: var(--blocked);
+}
+
+.verifier-checks strong {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.verifier-checks .detail {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--dim);
+  overflow-wrap: anywhere;
+}
+
+.verifier-fingerprint {
+  margin-top: 10px;
+  font-size: 10.5px;
+  color: var(--dim);
+  overflow-wrap: anywhere;
+}

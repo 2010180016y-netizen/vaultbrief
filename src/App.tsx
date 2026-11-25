@@ -5,12 +5,14 @@ import { DocumentPanel } from "./components/DocumentPanel";
 import { BriefPanel } from "./components/BriefPanel";
 import { ConsolePanel } from "./components/ConsolePanel";
 import { SettingsPanel } from "./components/SettingsPanel";
+import { ReceiptVerifier } from "./components/ReceiptVerifier";
 import { loadConfig, loadLocalConfig, saveLocalConfig, type AppConfig, type LocalModelConfig } from "./engine/config";
 import { probeRuntime, type DeviceRuntime } from "./engine/deviceRuntime";
 import { TransformersEmbedder, type Embedder } from "./engine/embeddings";
 import { planFor, runBrief, type RunOutcome } from "./engine/engine";
 import { HybridClient } from "./engine/hybrid";
-import { analyzeDocument, maskDocument, mergeScans } from "./engine/pii";
+import { maskDocument, mergeScans } from "./engine/pii";
+import { APP_VERSION, isTrustedBridgeOrigin, parseDocumentMessage, parseIncoming, readyMessage, receiptMessage } from "./engine/bridge";
 import { SAMPLES } from "./engine/samples";
 import { clampThreshold } from "./engine/router";
 import { scan } from "./engine/sensitivity";
@@ -46,15 +48,16 @@ export default function App() {
   const [outcomeText, setOutcomeText] = useState<string | null>(null);
   const [ledger, setLedger] = useState<RunReceipt[]>(() => loadLedger());
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [verifierOpen, setVerifierOpen] = useState(false);
   const [local, setLocal] = useState<LocalModelConfig>(() => loadLocalConfig());
   const [runtime, setRuntime] = useState<DeviceRuntime | null>(null);
   const [deviceError, setDeviceError] = useState<string | null>(null);
-  const [embedderStatus, setEmbedderStatus] = useState<"off" | "loading" | "ready" | "error">(
-    () => (loadLocalConfig().embeddings ? "off" : "off"),
-  );
+  const [embedderStatus, setEmbedderStatus] = useState<"off" | "loading" | "ready" | "error">("off");
   const abortRef = useRef<AbortController | null>(null);
   const engineRef = useRef<WebLlmEngine | null>(null);
   const embedderRef = useRef<Embedder | null>(null);
+  /** Where to answer the extension side panel, if it is the one talking. */
+  const bridgeRef = useRef<{ source: MessageEventSource | null; origin: string } | null>(null);
 
   const refreshRuntime = useCallback(async () => {
     const next = await probeRuntime({
@@ -111,20 +114,37 @@ export default function App() {
     };
   }, [client]);
 
-  // Chrome extension bridge: the side panel extracts the page and posts it here.
+  // Chrome extension bridge: the side panel says hello, hands over a document,
+  // and gets the receipt summary back. Replies go to the exact frame and origin
+  // that spoke, never to "*": a page that merely frames VaultBrief must not be
+  // able to harvest receipts.
   useEffect(() => {
+    const reply = (payload: unknown) => {
+      const target = bridgeRef.current;
+      const source = target?.source as Window | null | undefined;
+      if (target && source && typeof source.postMessage === "function") {
+        source.postMessage(payload, target.origin);
+      }
+    };
     const onMessage = (event: MessageEvent) => {
       if (event.source !== window.parent) return;
-      // Only the extension side panel (or this same origin) may hand us a document.
-      const fromExtension = event.origin.startsWith("chrome-extension://");
-      if (!fromExtension && event.origin !== window.location.origin) return;
-      const data = event.data as { type?: string; text?: string; title?: string };
-      if (data?.type !== "vaultbrief:document" || typeof data.text !== "string") return;
-      setText(data.text.slice(0, 60000));
+      if (!isTrustedBridgeOrigin(event.origin, window.location.origin)) return;
+      const message = parseIncoming(event.data);
+      if (!message) return;
+      if (message.type === "vaultbrief:hello") {
+        bridgeRef.current = { source: event.source, origin: event.origin };
+        reply(readyMessage());
+        return;
+      }
+      const accepted = parseDocumentMessage(event.data);
+      if (!accepted) return;
+      bridgeRef.current = { source: event.source, origin: event.origin };
+      setText(accepted.text);
       setActiveSample(null);
-      setDocumentTitle(typeof data.title === "string" && data.title.trim() ? data.title.trim().slice(0, 200) : null);
+      setDocumentTitle(accepted.title);
       setOutcome(null);
       setOutcomeText(null);
+      reply(readyMessage());
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
@@ -133,20 +153,22 @@ export default function App() {
   const cloudModel = overrides.cloudModel ?? config.cloudModel;
   const threshold = clampThreshold(overrides.threshold);
   const live = client !== null;
-  // Three views of the same document: the rule scan keeps the "Sensitivity
-  // scan" panel honest about which layer found what; the Presidio analysis is
-  // its own panel; and the union (rules + entities, counted by actually masking
-  // a copy) is what the router sees. Masking a copy here is cheap and makes the
-  // preview's "N identifiers are replaced" identical to the receipt's.
-  const pii = useMemo(() => (text.trim() ? analyzeDocument(text) : null), [text]);
-  const scanResult = useMemo(() => (text.trim() ? scan(text) : null), [text]);
-  const maskPreview = useMemo(() => (text.trim() ? maskDocument(text) : null), [text]);
+  // One pass over the document per edit, not four: `maskDocument` already
+  // analyses the text, so its analysis is reused for the Presidio panel and the
+  // router instead of running the recognizer registry twice on every keystroke.
+  const analysis = useMemo(() => {
+    if (!text.trim()) return null;
+    const ruleScan = scan(text);
+    const masked = maskDocument(text);
+    return { ruleScan, masked, pii: masked.analysis };
+  }, [text]);
+  const pii = analysis?.pii ?? null;
+  const scanResult = analysis?.ruleScan ?? null;
   const routedScan = useMemo(() => {
-    if (!scanResult) return undefined;
-    if (!pii) return scanResult;
-    const merged = mergeScans(scanResult, pii);
-    return { ...merged, redactable: Math.max(merged.redactable, maskPreview?.replaced ?? 0) };
-  }, [scanResult, pii, maskPreview]);
+    if (!analysis) return undefined;
+    const merged = mergeScans(analysis.ruleScan, analysis.pii);
+    return { ...merged, redactable: Math.max(merged.redactable, analysis.masked.replaced) };
+  }, [analysis]);
   const plan = useMemo(
     () =>
       text.trim()
@@ -155,68 +177,6 @@ export default function App() {
     [text, policy, masking, device, routedScan, threshold],
   );
   const stale = outcome !== null && outcomeText !== null && outcomeText !== text;
-
-  const handleRun = useCallback(async () => {
-    if (running || !text.trim()) return;
-    const controller = new AbortController();
-    abortRef.current = controller;
-    setRunning(true);
-    setCancelling(false);
-    setOutcome(null);
-    setOutcomeText(null);
-    setProgress({ phase: "scan", message: "Scanning for identifiers on this device…" });
-    setDownload(null);
-
-    try {
-      if (runtime?.engine === "nano" && client) {
-        // Must happen inside the click handler: Chrome only starts or resumes a
-        // model download with user activation.
-        await client.prepareDevice((value) => setDownload(value)).catch(() => undefined);
-      }
-      // transformers.js is loaded on the first run only: 23 MB, cached after.
-      let embedder: Embedder | null = null;
-      if (local.embeddings) {
-        embedder = await ensureEmbedder();
-      }
-      const result = await runBrief({
-        text,
-        policy,
-        maskingAllowed: masking,
-        device,
-        client,
-        deviceEngine: engineRef.current?.ready ? engineRef.current : null,
-        embedder: embedder?.ready ? embedder : null,
-        cloudModel,
-        threshold,
-        signal: controller.signal,
-        titleFallback: documentTitle ?? "Brief",
-        onProgress: setProgress,
-      });
-      setOutcome(result);
-      setOutcomeText(text);
-      if (result.status === "ok") {
-        const receipt = result.result.receipt;
-        setLedger((previous) => {
-          const next = [receipt, ...previous].slice(0, 60);
-          saveLedger(next);
-          return next;
-        });
-        if (client) void syncReceipt(receipt);
-      }
-      await refreshRuntime();
-    } finally {
-      abortRef.current = null;
-      setRunning(false);
-      setCancelling(false);
-      setProgress(null);
-      setDownload(null);
-    }
-  }, [running, text, policy, masking, device, client, cloudModel, threshold, documentTitle]);
-
-  const handleCancel = useCallback(() => {
-    setCancelling(true);
-    abortRef.current?.abort();
-  }, []);
 
   const ensureEmbedder = useCallback(async (): Promise<Embedder | null> => {
     if (embedderRef.current?.ready) return embedderRef.current;
@@ -231,6 +191,88 @@ export default function App() {
       setEmbedderStatus("error");
       return null;
     }
+  }, []);
+
+  const handleRun = useCallback(async () => {
+    if (running || !text.trim()) return;
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setRunning(true);
+    setCancelling(false);
+    setOutcome(null);
+    setOutcomeText(null);
+    setProgress({ phase: "scan", message: "Scanning for identifiers on this device…" });
+    setDownload(null);
+    setDeviceError(null);
+
+    try {
+      // The device state the router sees must be the state *after* preparation:
+      // pressing the button on a machine where Nano was still downloadable used
+      // to prepare the model and then route as if it were absent.
+      let activeDevice = device;
+      if (runtime?.engine === "nano" && client) {
+        // Must happen inside the click handler: Chrome only starts or resumes a
+        // model download with user activation.
+        try {
+          await client.prepareDevice((value) => setDownload(value));
+        } catch (error) {
+          const hint = (error as { hint?: string }).hint;
+          setDeviceError([(error as Error).message, hint].filter(Boolean).join(" "));
+        }
+        const refreshed = await refreshRuntime();
+        activeDevice = refreshed.status;
+        setDevice(refreshed.status);
+      }
+      // transformers.js is loaded on the first run only: 23 MB, cached after.
+      let embedder: Embedder | null = null;
+      if (local.embeddings) {
+        embedder = await ensureEmbedder();
+      }
+      const result = await runBrief({
+        text,
+        policy,
+        maskingAllowed: masking,
+        device: activeDevice,
+        client,
+        deviceEngine: engineRef.current?.ready ? engineRef.current : null,
+        embedder: embedder?.ready ? embedder : null,
+        cloudModel,
+        threshold,
+        signal: controller.signal,
+        titleFallback: documentTitle ?? "Brief",
+        previousDigest: ledger[0]?.integrity?.digest,
+        sequence: (ledger[0]?.integrity?.seq ?? 0) + 1,
+        onProgress: setProgress,
+      });
+      setOutcome(result);
+      setOutcomeText(text);
+      if (result.status === "ok") {
+        const receipt = result.result.receipt;
+        setLedger((previous) => {
+          const next = [receipt, ...previous].slice(0, 60);
+          saveLedger(next);
+          return next;
+        });
+        const target = bridgeRef.current;
+        const source = target?.source as Window | null | undefined;
+        if (target && source && typeof source.postMessage === "function") {
+          source.postMessage(receiptMessage(receipt), target.origin);
+        }
+        if (client) void syncReceipt(receipt);
+      }
+      await refreshRuntime();
+    } finally {
+      abortRef.current = null;
+      setRunning(false);
+      setCancelling(false);
+      setProgress(null);
+      setDownload(null);
+    }
+  }, [running, text, policy, masking, device, client, cloudModel, threshold, documentTitle, runtime, local.embeddings, ledger, ensureEmbedder, refreshRuntime]);
+
+  const handleCancel = useCallback(() => {
+    setCancelling(true);
+    abortRef.current?.abort();
   }, []);
 
   const prepareDevice = useCallback(async () => {
@@ -275,6 +317,11 @@ export default function App() {
     setOutcome(null);
     setOutcomeText(null);
   }, []);
+
+  // What the verifier pre-fills: the run just made, or the newest ledger entry.
+  const verifierReceipt = outcome?.status === "ok" ? outcome.result.receipt : (ledger[0] ?? null);
+  const verifierPrevious =
+    verifierReceipt && ledger[0]?.id === verifierReceipt.id ? ledger[1]?.integrity?.digest : undefined;
 
   return (
     <div className="app">
@@ -359,6 +406,7 @@ export default function App() {
             plan={plan}
             live={live}
             stale={stale}
+            onVerify={() => setVerifierOpen(true)}
           />
         </div>
 
@@ -370,6 +418,7 @@ export default function App() {
             ledger={ledger}
             threshold={threshold}
             remoteError={overrides.error}
+            onVerifyReceipt={() => setVerifierOpen(true)}
             onClearLedger={() => {
               setLedger([]);
               saveLedger([]);
@@ -379,9 +428,20 @@ export default function App() {
       </div>
 
       <div className="footer">
-        <span>VaultBrief · #BuildHybridAI 2026 · Firebase AI Logic hybrid inference (Gemini Nano → Gemini 3.5 Flash Lite)</span>
+        <span>
+          VaultBrief v{APP_VERSION} · #BuildHybridAI 2026 · Firebase AI Logic hybrid inference (Gemini Nano → Gemini 3.5
+          Flash Lite)
+        </span>
         <span>Dollar figures are estimates at a configurable list price; token counts are character-based approximations.</span>
       </div>
+
+      <ReceiptVerifier
+        open={verifierOpen}
+        receipt={verifierReceipt}
+        documentText={text}
+        previousDigest={verifierPrevious}
+        onClose={() => setVerifierOpen(false)}
+      />
 
       {settingsOpen && (
         <SettingsPanel

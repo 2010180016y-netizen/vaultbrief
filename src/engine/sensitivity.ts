@@ -115,7 +115,7 @@ export const RULES: SignalRule[] = [
     weight: 40,
     perExtra: 8,
     maxBonus: 24,
-    pattern: /(?<![A-Za-z0-9])[MS]\d{8}(?![0-9])/g,
+    pattern: /(?<![A-Za-z0-9])[MSROD]\d{8}(?![0-9])/g,
   },
   {
     id: "card",

@@ -1,0 +1,55 @@
+{
+  "id": "74496d3c-0d6d-4e4a-82d8-fa59ac1a6cd3",
+  "startedAt": "2026-11-25T05:30:23.228Z",
+  "policy": "auto",
+  "requestedMode": "only_in_cloud",
+  "source": "in_cloud",
+  "simulated": true,
+  "latencyMs": 314,
+  "inputChars": 1482,
+  "cloudChars": 1551,
+  "stayedLocalChars": 119,
+  "tokensIn": 558,
+  "tokensOut": 120,
+  "chunks": 1,
+  "redacted": true,
+  "model": "gemini-3.5-flash-lite",
+  "notes": [
+    "Only the masked copy left the device; the original text stayed in this tab.",
+    "Masked copy: 1,551 characters transmitted; 9 spans were replaced (Presidio entities + rules) and 119 characters of the original never left. Placeholders can be longer than the value they replace.",
+    "The masked copy still shows Health information — keywords cannot be replaced without destroying the document.",
+    "Simulated: no Firebase project is configured, so a local extractive summariser produced this brief instead of Gemini.",
+    "This browser has no on-device model (Chrome 139+ desktop with the Prompt API), so the private route is not available here.",
+    "9 identifiers are replaced with typed placeholders before the request leaves the device.",
+    "A masked copy still reveals Health information — those are topics, not identifiers, so they cannot be replaced without destroying the document."
+  ],
+  "pii": {
+    "engine": "presidio-ts (v2.2 recognizer semantics)",
+    "entities": 4,
+    "validated": 7,
+    "contextBoosted": 4,
+    "score": 78,
+    "masked": 7
+  },
+  "local": {
+    "embedder": null,
+    "dedupedChunks": 0
+  },
+  "split": {
+    "onDevicePasses": 0,
+    "cloudPasses": 1
+  },
+  "integrity": {
+    "version": 2,
+    "alg": "ECDSA-P256-SHA256",
+    "signed": true,
+    "digest": "8960d51be6545617ad76f5d00b83f4c289296896cd6babf854289ab6b4de393b",
+    "documentSha256": "a505d4dabcde46c7557263c4c795c84492f422d5742025273f18884fb003de94",
+    "issuedAt": "2026-11-25T05:30:23.229Z",
+    "seq": 7,
+    "prev": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "keyId": "f5195b8ca95bfc98",
+    "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEGm3vdfHyk6y99fR2jA3WZhA6dXpF5Bg30OFWgY3Ann0xp5mhUxhCm6t+JkQp8ok0CZWJMRTioXV178zipNW0Uw==",
+    "signature": "dfn3SMJaa3Hx2Vls0PY7E267ydYe7OwsXgs6wVSYmdDGsag0qN902+TMukqXQuWyhw24pJpsR028fudwqnrlsw=="
+  }
+}

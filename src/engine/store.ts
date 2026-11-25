@@ -68,6 +68,50 @@ export interface RemoteSyncResult {
 }
 
 /**
+ * The fields the optional Firestore mirror writes. Kept beside the rules test:
+ * `firestore.rules` refuses any key outside its `hasOnly` list, so a new receipt
+ * field that is mirrored without updating the rules fails silently in
+ * production. `receipt.test.ts` compares this list with the rules file.
+ */
+export const RECEIPT_MIRROR_FIELDS = [
+  "id",
+  "startedAt",
+  "policy",
+  "requestedMode",
+  "source",
+  "simulated",
+  "latencyMs",
+  "inputChars",
+  "cloudChars",
+  "stayedLocalChars",
+  "tokensIn",
+  "tokensOut",
+  "chunks",
+  "redacted",
+  "model",
+  "notes",
+  "pii",
+  "semantic",
+  "local",
+  "split",
+  "integrity",
+] as const;
+
+/**
+ * A Firestore-safe copy: only mirrored fields, and no `undefined` anywhere —
+ * the SDK rejects a nested undefined value, which used to fail every mirror of
+ * a run without the local embedder.
+ */
+export function mirrorPayload(receipt: RunReceipt): Record<string, unknown> {
+  const source = receipt as unknown as Record<string, unknown>;
+  const payload: Record<string, unknown> = {};
+  for (const field of RECEIPT_MIRROR_FIELDS) {
+    if (source[field] !== undefined) payload[field] = source[field];
+  }
+  return JSON.parse(JSON.stringify(payload)) as Record<string, unknown>;
+}
+
+/**
  * Mirrors a signed-receipt-shaped document to Firestore when available.
  * Anonymous auth is used so receipts stay scoped per browser; if Auth is not
  * enabled the write is skipped and reported, never thrown.
@@ -97,7 +141,7 @@ export async function syncReceipt(receipt: RunReceipt): Promise<RemoteSyncResult
     const credential = await auth.signInAnonymously(auth.getAuth(app));
     const db = getFirestore(app);
     await addDoc(collection(db, "receipts"), {
-      ...receipt,
+      ...mirrorPayload(receipt),
       uid: credential.user.uid,
       createdAt: serverTimestamp(),
     });

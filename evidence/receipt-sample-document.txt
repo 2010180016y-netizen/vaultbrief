@@ -1,0 +1,31 @@
+Riverside Community Hospital — Discharge Summary
+
+Patient: Daniel R. Okafor, DOB 1988-03-14, MRN 4471-2291
+Contact: +1 415 555 0134, d.okafor@mailbox.example
+Admitted: 2026-11-02 08:40  Discharged: 2026-11-05 14:10
+Attending: Dr. Mei-Ling Tran, Internal Medicine
+
+Reason for admission
+Chest pain on exertion, with shortness of breath lasting four days. The patient reported no syncope, no palpitations at rest, and no fever.
+
+Diagnosis and findings
+1. Stable angina, confirmed by a positive stress test on 2026-11-03.
+2. Mild hypertension, average office reading 146/92.
+3. Vitamin D deficiency, incidental on blood test.
+
+Procedure
+Diagnostic catheterisation on 2026-11-04. A single 60% lesion was found in the mid LAD and was treated medically rather than with stenting. No dissection, no perforation, no access-site complication.
+
+Medication prescribed
+Atorvastatin 40 mg once nightly.
+Metoprolol succinate 25 mg once daily, titrate to resting heart rate under 65.
+Aspirin 81 mg once daily.
+Nitroglycerin 0.4 mg sublingual as needed, maximum three doses.
+
+Follow-up
+Cardiology clinic on 2026-11-24 at 10:30 with Dr. Tran. Repeat lipid panel and liver enzymes before that visit. Return immediately for chest pain at rest, new breathlessness, or fainting.
+
+Instructions given
+Keep a symptom diary for two weeks. Avoid heavy lifting over 5 kg for one week, then resume gradually. The patient was told not to drive for 48 hours after sedation.
+
+Signed: Dr. Mei-Ling Tran, 2026-11-05.

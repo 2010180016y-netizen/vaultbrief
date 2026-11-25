@@ -1,6 +1,6 @@
 # Three review rounds
 
-**Status of these panels:** role-based internal reviews. Each round applied a named professional lens — Firebase architect / Google Developer Expert, on-device (edge) AI engineer, Chrome extension UX lead, hackathon judge & product strategist — to this repository's design, source and docs. No external person was contacted, and the findings below are engineering reasoning, not quotations. Anything a round could not settle is listed as residual risk rather than assumed away.
+**Status of these panels:** role-based internal reviews (rounds 1–4 review the 1.0/1.1 build; round 5 is the v1.2 re-audit). Each round applied a named professional lens — Firebase architect / Google Developer Expert, on-device (edge) AI engineer, Chrome extension UX lead, hackathon judge & product strategist — to this repository's design, source and docs. No external person was contacted, and the findings below are engineering reasoning, not quotations. Anything a round could not settle is listed as residual risk rather than assumed away.
 
 ---
 
@@ -53,7 +53,7 @@ Candidates scored on (a) does the hybrid split carry the value rather than decor
 
 | Attack | Answer in the build |
 | --- | --- |
-| "This is a wrapper around the same prompt." | The router, the scan, the masking and the receipt are the product, and they are pure TypeScript with 92 tests. `router.ts` contains the invariant no policy can bypass. |
+| "This is a wrapper around the same prompt." | The router, the scan, the masking and the receipt are the product, and they are pure TypeScript with a test suite that runs on every push. `router.ts` contains the invariant no policy can bypass. |
 | "Show me it's really on-device." | The receipt prints `inferenceSource`, the ledger sums characters that never reached the cloud, and the code path is one file. The video shows the same document routed three ways. |
 | "Privacy claims are marketing." | Every claim is a counted number (characters, tokens, passes). The app refuses to run rather than softening a rule, and says which route it used when it had to change. |
 | "The judge has no Gemini Nano." | The masked-copy route is the demo; the video shows both. The device panel states `availability` verbatim instead of pretending. |
@@ -102,3 +102,29 @@ Candidates scored on (a) does the hybrid split carry the value rather than decor
 - No live project, no real Gemini Nano, no live Chrome profile in this environment: the network boundary and the MV3 contract are checked statically, not exercised. This remains the honest gap.
 - The scan is pattern-based. It will miss identifiers written in an unusual shape and can over-flag unusual public text; that is why the router errs towards keeping text local and why the receipt reports what it did.
 - The keyword lists are English + Korean only. A French or Japanese document gets value-rule coverage (numbers, emails, cards) but not topic coverage.
+
+---
+
+## Round 5 — v1.2 re-audit: what the seal changed
+
+*Question:* the previous rounds fixed what a careful reader could see. What does a hostile
+reader find now that the receipt is checkable and the invariant is stated as a guarantee?
+
+| Attack | What it finds | Where it is answered |
+| --- | --- | --- |
+| "A public article with an email address goes to the cloud unmasked." | It did in 1.1. The gate was the 0–100 score. | The invariant is now identifier-level in `router.ts`, with a router test and an engine test (the public newsletter's footer address is masked). |
+| "The receipt is a JSON blob you can edit." | It was. | Digest + ECDSA P-256 + document fingerprint + chain, verified in the app, by `scripts/verify-receipt.mjs` and by 16 tests including a spliced signature and a wrong document. |
+| "Your signature proves nothing to a third party." | Correct, and now stated in the README and in this file: it is an issuing-key check, not attestation. What it does prove is that the file was not edited after sealing and that its chain neighbours exist. | `docs/DEEP-AUDIT-AND-UPGRADE.md` residual risks; README "Verifiable receipts". |
+| "You never tested the SDK integration." | 14 tests against a fake SDK with the real surface, including App Check ordering and both device modes prepared; plus the contract check that reaches Google. | `hybrid.test.ts`, `scripts/verify-sdk-path.mjs`. |
+| "Your Firestore mirror is decorative." | It was broken by the rules. | Rules updated for every mirrored field, `undefined` stripped, drift test parses the rules file. |
+| "The side panel is fire-and-forget." | It was. | Versioned `hello`/`ready`/`receipt`, protocol check, origin+source checks, and static checks that the two constants stay in step. |
+| "60,000 characters on every keystroke?" | 256 ms after the fix, 453 ms before, measured. | `perf.test.ts` prints and bounds it. |
+| "No security headers." | True in 1.1. | `public/_headers` with an explicit CSP allowlist, checked by `verify:oss`. |
+
+**Judge:** the new verify beat is the strongest 20 seconds in the video; keep it before the
+cloud path so the first three minutes contain the claim *and* the proof.
+
+**Residual risk after Round 5** — unchanged in kind from Round 4, reduced in size: no live
+Firebase project, no real Nano/WebGPU in this environment; the signature is not third-party
+attestation; pattern detection has the usual limits; the CSP allowlist must move with
+Firebase's endpoints.

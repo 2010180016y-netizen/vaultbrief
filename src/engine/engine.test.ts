@@ -51,7 +51,7 @@ describe("runBrief (simulated pipeline)", () => {
     expect(outcome.result.brief.tldr.length).toBeGreaterThan(10);
   });
 
-  it("sends the long public document to the cloud", async () => {
+  it("sends the long public document to the cloud, masking its incidental identifiers", async () => {
     const outcome = await runBrief({
       ...base,
       text: sample("brief"),
@@ -63,8 +63,28 @@ describe("runBrief (simulated pipeline)", () => {
     if (outcome.status !== "ok") return;
     expect(outcome.plan.expectedSource).toBe("in_cloud");
     expect(outcome.result.receipt.cloudChars).toBeGreaterThan(2000);
-    expect(outcome.result.receipt.stayedLocalChars).toBe(0);
+    // The newsletter is public (14/100), but its footer address is still an
+    // identifier: the cloud only ever sees the masked copy.
+    expect(outcome.plan.sensitive).toBe(false);
+    expect(outcome.plan.redactBeforeSending).toBe(true);
+    expect(outcome.result.receipt.redacted).toBe(true);
+    expect(outcome.result.receipt.stayedLocalChars).toBeGreaterThan(0);
     expect(outcome.result.receipt.model).toBe("gemini-3.5-flash-lite");
+  });
+
+  it("sends an identifier-free public document to the cloud as it is", async () => {
+    const outcome = await runBrief({
+      ...base,
+      text: `${"The council reviewed the transport plan in detail. ".repeat(90)}`,
+      policy: "auto",
+      maskingAllowed: true,
+      device: deviceReady,
+    });
+    expect(outcome.status).toBe("ok");
+    if (outcome.status !== "ok") return;
+    expect(outcome.plan.redactBeforeSending).toBe(false);
+    expect(outcome.result.receipt.redacted).toBe(false);
+    expect(outcome.result.receipt.stayedLocalChars).toBe(0);
   });
 
   it("masks the private document when only the cloud is available", async () => {
