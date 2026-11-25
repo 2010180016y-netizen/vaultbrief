@@ -281,6 +281,28 @@ masking, sealing, verification and refusal logic exercised above is the same cod
 against a real project, and the receipt signature is produced by the browser's WebCrypto
 either way.
 
+### Live Firebase run and the bug it exposed (2026-11-25 21:10–21:16 KST)
+
+A real project (`vaultbrief-hybridai`, Spark) was wired into the build and the same app was
+exercised against it in the browser. The first live attempt failed, which is the point of
+running it:
+
+| Attempt | Observed |
+| --- | --- |
+| First live click (previous commit) | `This build of the SDK has no inference mode “prefer_in_cloud”.` `The app expects firebase 13.x.` — the router's lower-case mode was used to index `firebase/ai`'s `InferenceMode`, which is keyed by upper-case member names (`InferenceMode.PREFER_IN_CLOUD === "prefer_in_cloud"`). The mock in `hybrid.test.ts` was keyed the lower-case way, so 170 unit tests and the SDK contract check (which reads the real enum) both passed while the live path was dead. |
+| After `resolveInferenceMode()` (commit `c0bfc6d`) | **Live.** Newsletter: `Cloud · Gemini`, 10,834 ms, `gemini-3.5-flash-lite`, masked copy, receipt `e6a39d47-098f-4f55`, sent 4,128 / stayed local 29, tokens 1202/292, `simulated: false`, sealed `seq 1`, **Verify 7/7**. Hospital summary: `only in cloud`, 100/100, 13 matches, 9 identifiers masked, 5,434 ms, receipt `eb22266f-8292-4125`, sent 1,551 / stayed local 119, tokens 558/214, sealed `seq 2` `prev 65602a39…`, **Verify 8/8 including ledger chain**. Firestore: `receipts/cta8Hx72pFHXJIeZYuuU` exists under anonymous uid `ZjO2aFQZdmdFMBp313izki62oyb2` with the same id, counts and integrity block — the mirror, anonymous auth and the published rules all work. |
+
+App Check (Fraud Defense / reCAPTCHA Enterprise) accepted the requests with no billing
+account on the project, and AI Logic is enforced for it. The on-device route still cannot
+run here (no WebGPU adapter), so the private path reports the documented fallback instead of
+pretending to have run locally.
+
+Evidence: `evidence/live-firebase-newsletter-2026-11-25.png`,
+`evidence/live-firebase-hospital-masked-2026-11-25.png`,
+`evidence/live-firebase-verify-7of7-2026-11-25.png`,
+`evidence/live-firebase-verify-chain-8of8-2026-11-25.png`,
+`evidence/firestore-receipt-mirror-2026-11-25.png`.
+
 ---
 
 ## Residual risks (stated, not hidden)

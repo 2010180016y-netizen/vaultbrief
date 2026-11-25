@@ -2,6 +2,30 @@
 
 VaultBrief calls Gemini through Firebase AI Logic. The app is complete and runs without a project (demo mode), but the real hybrid path needs the five steps below. Expect 10–15 minutes.
 
+## Current deployment (2026-11-25)
+
+A project is live and the production build points at it. Nothing here is a secret: the web
+config and the reCAPTCHA site key are public by design, and the build takes them from
+environment variables so the repository stays clean.
+
+| Item | Value |
+| --- | --- |
+| Project | `vaultbrief-hybridai` (Spark, no billing account) |
+| Web app | `VaultBrief Web` · appId `1:940139883309:web:283f9592bbc186da7a41a4` |
+| AI Logic | Gemini Developer API enabled; AI monitoring off |
+| App Check | Fraud Defense (reCAPTCHA Enterprise) site key `6LfqizEuAAAAAF0qmg8GLOSsFg-jUPCqTOw323UB`; **enforced** for AI Logic (replay protection not enforced) |
+| Allowed origins on the key | `vaultbrief-bby.pages.dev`, `vaultbrief-hybridai.web.app`, `localhost` |
+| Authentication | Anonymous, with 30-day auto-delete |
+| Firestore | `(default)`, `asia-northeast3`, `firestore.rules` published |
+| Remote Config | `sensitivity_threshold=40`, `cloud_model=gemini-3.5-flash-lite` |
+| Hosts | https://vaultbrief-bby.pages.dev (submission), https://vaultbrief-hybridai.web.app |
+
+No billing account was created and no paid tier was entered: Fraud Defense reported a
+reCAPTCHA Enterprise assessment on the live run, and every other product here is inside the
+Spark free quota. If a later change ever asks for Blaze, stop there instead of upgrading.
+
+Without Firebase, the debug-token path in step 3 still works for a local review.
+
 ## 1. Create the project and a web app
 
 1. <https://console.firebase.google.com> → **Add project** (Analytics is not needed).

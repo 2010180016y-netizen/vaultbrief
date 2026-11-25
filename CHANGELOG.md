@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased — live Firebase wiring (2026-11-25)
+
+Live wiring against a real Firebase project, and the SDK bug the live run exposed.
+
+### Fixed
+
+- **`InferenceMode` was looked up by its value, not by the SDK's member name.** The SDK
+  exports `InferenceMode.PREFER_IN_CLOUD === "prefer_in_cloud"`, so `InferenceMode[mode]`
+  returned `undefined` and every live run failed with *“This build of the SDK has no
+  inference mode”* — while the unit tests passed, because the mock was keyed the same way
+  the app talks. `resolveInferenceMode()` now resolves by the key as given, then the
+  upper-case member name, then a value match, and the contract error lists the modes the
+  SDK actually exposes. Locked by new tests in `hybrid.test.ts` (real enum shape, mock
+  shape, renamed members, missing mode, client-level run) and by two new checks in
+  `scripts/verify-sdk-path.mjs` that resolve all four router strings against the real
+  `firebase/ai` enum and assert `hybrid.ts` goes through the resolver.
+
+### Added
+
+- A live Firebase project (`vaultbrief-hybridai`, Spark plan) is wired into the build via
+  `VITE_FIREBASE_*` / `VITE_APPCHECK_SITE_KEY` (see `docs/SETUP-FIREBASE.md`): AI Logic on
+  the Gemini Developer API, App Check through Fraud Defense (reCAPTCHA Enterprise) enforced
+  for AI Logic, anonymous sign-in with 30-day auto-cleanup, Firestore in `asia-northeast3`
+  with `firestore.rules` published, and the Remote Config template imported.
+- `evidence/live-firebase-*.png` and `evidence/firestore-receipt-mirror-2026-11-25.png`:
+  the live run, the sealed receipts (7/7 and 8/8 with the ledger chain) and the mirrored
+  Firestore document.
+
 ## 1.2.0 — 2026-11-25
 
 A seven-step audit and upgrade of the #BuildHybridAI entry. The full record, with findings,
