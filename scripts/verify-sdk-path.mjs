@@ -13,6 +13,7 @@
  *
  * Run: node scripts/verify-sdk-path.mjs
  */
+import { readFileSync } from "node:fs";
 import { initializeApp } from "firebase/app";
 import { getAI, getGenerativeModel, GoogleAIBackend, InferenceMode } from "firebase/ai";
 
@@ -50,6 +51,42 @@ check("InferenceMode values match the router strings", () => {
   const keys = Object.keys(InferenceMode);
   if (keys.length !== 4) throw new Error(`expected 4 modes, found ${keys.join(", ")}`);
   return Object.values(InferenceMode).join(", ");
+});
+
+check("the app's mode resolution works against the real InferenceMode object", () => {
+  // Mirrors resolveInferenceMode() in src/engine/hybrid.ts: the key as given,
+  // then the upper-case member name (the real SDK's shape), then a value match.
+  // This is the lookup that passed against a mock keyed like the app talks and
+  // returned undefined against the real enum.
+  const resolve = (modes, mode) => {
+    if (!modes) return undefined;
+    for (const candidate of [mode, mode.toUpperCase()]) {
+      const value = modes[candidate];
+      if (typeof value === "string" && value) return value;
+    }
+    for (const [key, value] of Object.entries(modes)) {
+      if (typeof value !== "string" || !value) continue;
+      if (value === mode || key.toLowerCase() === mode) return value;
+    }
+    return undefined;
+  };
+  const routerModes = ["prefer_on_device", "only_on_device", "prefer_in_cloud", "only_in_cloud"];
+  for (const mode of routerModes) {
+    const resolved = resolve(InferenceMode, mode);
+    if (resolved !== mode) throw new Error(`resolve(${mode}) returned ${resolved}`);
+  }
+  return "all four router strings resolved through the upper-case member name";
+});
+
+check("src/engine/hybrid.ts resolves the mode through resolveInferenceMode", () => {
+  const source = readFileSync(new URL("../src/engine/hybrid.ts", import.meta.url), "utf8");
+  if (!source.includes("resolveInferenceMode(this.sdk.InferenceMode, mode)")) {
+    throw new Error("model() does not call resolveInferenceMode(this.sdk.InferenceMode, mode)");
+  }
+  if (/InferenceMode\s*\[\s*mode\s*\]/.test(source)) {
+    throw new Error("model() still indexes InferenceMode by the lower-case mode string");
+  }
+  return "resolver in use";
 });
 
 // Deliberately fake: a syntactically valid, non-existent project.

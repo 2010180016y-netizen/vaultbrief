@@ -71,7 +71,41 @@ interface GenerativeModelLike {
 }
 
 interface HybridModules extends FirebaseModules {
-  InferenceMode: Record<InferenceModeName, InferenceModeName>;
+  /**
+   * `firebase/ai` exports an enum-like object keyed by the upper-case member
+   * names (`PREFER_IN_CLOUD: "prefer_in_cloud"`), not by the values. Typed as a
+   * plain string map so a mock, a renamed enum member or a future SDK shape all
+   * type-check while `resolveInferenceMode` does the runtime resolution.
+   */
+  InferenceMode: Record<string, string>;
+}
+
+/**
+ * Map a router mode string onto the value the SDK wants for `mode`.
+ *
+ * The router, the receipts and the Remote Config speak the lower-case values
+ * (`prefer_in_cloud`). The SDK's `InferenceMode` object is keyed by the
+ * upper-case member name (`InferenceMode.PREFER_IN_CLOUD === "prefer_in_cloud"`),
+ * so looking the mode up by its own string returned `undefined` against the real
+ * SDK while passing against a mock keyed the way the app talks — exactly the bug
+ * a mock of this contract cannot show. Resolution order: the key as given (the
+ * mock's shape), the upper-case key (the real SDK), then a value match (a future
+ * rename), so every shape is accepted.
+ */
+export function resolveInferenceMode(
+  modes: Record<string, string> | undefined | null,
+  mode: InferenceModeName,
+): string | undefined {
+  if (!modes) return undefined;
+  for (const candidate of [mode, mode.toUpperCase()]) {
+    const value = modes[candidate];
+    if (typeof value === "string" && value) return value;
+  }
+  for (const [key, value] of Object.entries(modes)) {
+    if (typeof value !== "string" || !value) continue;
+    if (value === mode || key.toLowerCase() === mode) return value;
+  }
+  return undefined;
 }
 
 export type { FirebaseModules, HybridModules, GenerativeModelLike };
@@ -99,7 +133,8 @@ async function loadSdk(): Promise<HybridModules> {
 }
 
 export interface HybridModelParams {
-  mode: InferenceModeName;
+  /** The SDK's own mode value (see `resolveInferenceMode`). */
+  mode: string;
   inCloudParams: {
     model: string;
     generationConfig: {
@@ -123,7 +158,7 @@ export interface HybridModelParams {
  * tests and the contract check can inspect them without a Firebase project.
  * `mode` is filled with the SDK's own value by the client before the call.
  */
-export function hybridParams(mode: InferenceModeName, cloudModel: string): HybridModelParams {
+export function hybridParams(mode: string, cloudModel: string): HybridModelParams {
   return {
     mode,
     inCloudParams: {
@@ -253,11 +288,12 @@ export class HybridClient {
     const existing = this.models.get(key);
     if (existing) return existing;
 
-    const modeValue = this.sdk.InferenceMode[mode];
+    const modeValue = resolveInferenceMode(this.sdk.InferenceMode, mode);
     if (!modeValue) {
+      const exposed = Object.keys(this.sdk.InferenceMode ?? {}).join(", ") || "nothing";
       throw new HybridError(
         `This build of the SDK has no inference mode “${mode}”.`,
-        "The app expects firebase 13.x. Reinstall dependencies and reload.",
+        `InferenceMode exposes ${exposed}. The app expects firebase 13.x. Reinstall dependencies and reload.`,
         "sdk/contract",
       );
     }

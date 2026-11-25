@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { HybridClient, HybridError, hybridParams, __resetHybridClient, type HybridModules } from "./hybrid";
+import { HybridClient, HybridError, hybridParams, resolveInferenceMode, __resetHybridClient, type HybridModules } from "./hybrid";
 import type { AppConfig } from "./config";
 import { BRIEF_SCHEMA } from "./prompt";
 
@@ -30,7 +30,7 @@ interface FakeModel {
   onGenerate?: (prompt: string) => { text: string; inferenceSource?: "on_device" | "in_cloud" };
 }
 
-function fakeSdk() {
+function fakeSdk(overrides: Partial<HybridModules> = {}) {
   const log: string[] = [];
   const models: FakeModel[] = [];
   const generateCalls: Array<{ prompt: string; options?: unknown }> = [];
@@ -94,6 +94,7 @@ function fakeSdk() {
       prefer_in_cloud: "prefer_in_cloud",
       only_in_cloud: "only_in_cloud",
     },
+    ...overrides,
   };
 
   return { sdk, log, models, generateCalls };
@@ -102,6 +103,46 @@ function fakeSdk() {
 beforeEach(() => {
   __resetHybridClient();
   delete (globalThis as Record<string, unknown>).FIREBASE_APPCHECK_DEBUG_TOKEN;
+});
+
+describe("resolveInferenceMode", () => {
+  const MODES = ["prefer_on_device", "only_on_device", "prefer_in_cloud", "only_in_cloud"] as const;
+
+  it("accepts the real firebase/ai enum, whose keys are upper-case member names", () => {
+    // The shape of `InferenceMode` in firebase/ai 13.4.0: uppercase keys, lowercase values.
+    const realSdk = {
+      PREFER_ON_DEVICE: "prefer_on_device",
+      ONLY_ON_DEVICE: "only_on_device",
+      ONLY_IN_CLOUD: "only_in_cloud",
+      PREFER_IN_CLOUD: "prefer_in_cloud",
+    } as const;
+    for (const mode of MODES) {
+      expect(resolveInferenceMode(realSdk, mode)).toBe(mode);
+    }
+  });
+
+  it("keeps working with the lower-case keyed mock used by these tests", () => {
+    const mock = {
+      prefer_on_device: "prefer_on_device",
+      only_on_device: "only_on_device",
+      prefer_in_cloud: "prefer_in_cloud",
+      only_in_cloud: "only_in_cloud",
+    };
+    for (const mode of MODES) {
+      expect(resolveInferenceMode(mock, mode)).toBe(mode);
+    }
+  });
+
+  it("falls back to a value match if the SDK renames its members", () => {
+    const renamed = { MODE_A: "prefer_on_device", MODE_B: "only_in_cloud" };
+    expect(resolveInferenceMode(renamed, "prefer_on_device")).toBe("prefer_on_device");
+    expect(resolveInferenceMode(renamed, "only_in_cloud")).toBe("only_in_cloud");
+  });
+
+  it("returns undefined for a mode the SDK does not have", () => {
+    expect(resolveInferenceMode({ PREFER_IN_CLOUD: "prefer_in_cloud" }, "only_on_device")).toBeUndefined();
+    expect(resolveInferenceMode(undefined, "prefer_in_cloud")).toBeUndefined();
+  });
 });
 
 describe("hybridParams", () => {
@@ -207,6 +248,35 @@ describe("HybridClient device model", () => {
 });
 
 describe("HybridClient.generate", () => {
+  it("builds the model with the real SDK's upper-case InferenceMode keys", async () => {
+    const { sdk, log } = fakeSdk({
+      InferenceMode: {
+        PREFER_ON_DEVICE: "prefer_on_device",
+        ONLY_ON_DEVICE: "only_on_device",
+        ONLY_IN_CLOUD: "only_in_cloud",
+        PREFER_IN_CLOUD: "prefer_in_cloud",
+      },
+    });
+    const client = await HybridClient.connect(config, async () => sdk);
+    await client.generate({ prompt: "newsletter", mode: "prefer_in_cloud" });
+    await client.generate({ prompt: "diagnosis", mode: "only_on_device" });
+    // The SDK must receive the mode *value* (what getGenerativeModel expects), not a key.
+    expect(log).toContain("getGenerativeModel:prefer_in_cloud");
+    expect(log).toContain("getGenerativeModel:only_on_device");
+  });
+
+  it("reports the SDK contract error with the modes the SDK actually exposes", async () => {
+    const { sdk } = fakeSdk({ InferenceMode: { SOMETHING_ELSE: "something_else" } });
+    const client = await HybridClient.connect(config, async () => sdk);
+    const thrown = await client
+      .generate({ prompt: "x", mode: "prefer_in_cloud" })
+      .then(() => null)
+      .catch((value: unknown) => value);
+    expect(thrown).toBeInstanceOf(HybridError);
+    expect((thrown as HybridError).code).toBe("sdk/contract");
+    expect((thrown as HybridError).hint).toContain("SOMETHING_ELSE");
+  });
+
   it("caches one model per (mode, cloud model)", async () => {
     const { sdk, log, generateCalls } = fakeSdk();
     const client = await HybridClient.connect(config, async () => sdk);
