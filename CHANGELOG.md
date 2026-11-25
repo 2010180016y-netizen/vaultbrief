@@ -49,6 +49,11 @@ severities, strategy and measured evidence, is in
 - Korean names after an honorific or job title, with a stoplist; passport prefixes aligned
   between the two layers; dead code removed.
 
+### Dependencies
+
+- `overrides` pins `@grpc/grpc-js@^1.14.7` (Firestore's Node transport, not in the browser
+  bundle): `npm audit` is now clean (was 4 high advisories).
+
 ### Delivery
 
 - `public/_headers`: CSP allowlist, `nosniff`, referrer policy, permissions policy, framing

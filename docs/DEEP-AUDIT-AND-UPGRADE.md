@@ -49,6 +49,7 @@ dead end for a judge), **M**edium (cost, coverage, honesty), **L**ow (polish).
 | 11 | **M** | Transport | No security headers at all: no CSP, no `nosniff`, no referrer policy, no framing policy. | For a product whose argument is “your document stays here”, that is a visible gap. |
 | 12 | **L** | UI | `embedderStatus` initialised with `embeddings ? "off" : "off"`; the passport rule used `[MS]` while the Presidio layer used `[MSROD]`; `mergeScans` mutated the caller's detections. | Dead code and two layers that disagree invite the next bug. |
 | 13 | **L** | Test blind spots | `hybrid.ts` (App Check, model caching, device preparation), `bridge`, receipt integrity, the Firestore/rules contract and the per-keystroke cost had no tests. | The parts a judge cannot run by hand were exactly the untested ones. |
+| 14 | **M** | Dependencies | `npm audit` showed 4 high advisories via the transitive `@grpc/grpc-js@1.9.16` (Firestore's Node transport). | A public privacy repo with open high advisories invites the question of how carefully it is maintained. |
 
 ---
 
@@ -171,7 +172,12 @@ replies with `postMessage(payload, event.origin)` — never `"*"`.
 followed by a particle or punctuation, with a 19-word stoplist (`고객`, `회원`, `담당`, …) so
 polite nouns are not turned into people. Tested both ways.
 
-**9. Honesty and delivery (findings 10–13).** Every document now states 199 tests (198
+**9. Dependency advisories (finding 14, found while checking the delivered state).** `npm audit`
+reported four high advisories, all through `@grpc/grpc-js@1.9.16` (pulled in by Firestore's Node
+transport; not part of the browser bundle). `overrides` now pins `@grpc/grpc-js@^1.14.7`;
+`npm audit` reports **0 vulnerabilities** and the suite, build and contract checks are unchanged.
+
+**10. Honesty and delivery (findings 10–13).** Every document now states 199 tests (198
 offline + 1 opt-in), and the public route is described as “identifiers masked”. `public/_headers`
 ships CSP/`nosniff`/referrer/permissions/framing policy, checked by `verify:oss`. Dead code
 removed; passport prefixes aligned; `mergeScans` no longer mutates its input. New tests
@@ -208,6 +214,7 @@ tested.
 | `npm run verify:extension` | **9/9** checks, including the panel↔app protocol match |
 | `npm run verify:receipt` | **5/5** checks on the committed sample (`VERIFIED`) |
 | `npm run verify:oss` | **26/26** checks (dependencies, API surface, corpus, headers) |
+| `npm audit` | **0 vulnerabilities** (after the `@grpc/grpc-js` override) |
 | `node scripts/verify-sdk-path.mjs` | real SDK contract: 4 modes, parameters accepted, request reaches `firebasevertexai.googleapis.com` and fails only on the fake key |
 
 Baseline before this round, measured the same way: 143 passed + 1 skipped (144), 6 extension checks and 21 OSS checks; after the first pass of this audit 193+1 (194), and 198+1 (199) once the identifier-invariant tests were added.
