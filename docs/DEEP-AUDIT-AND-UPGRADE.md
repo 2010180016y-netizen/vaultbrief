@@ -303,6 +303,21 @@ Evidence: `evidence/live-firebase-newsletter-2026-11-25.png`,
 `evidence/live-firebase-verify-chain-8of8-2026-11-25.png`,
 `evidence/firestore-receipt-mirror-2026-11-25.png`.
 
+### The submitted artifact on Cloudflare Pages (2026-11-25 21:19 KST)
+
+The same `dist.zip` (sha256 `99c0d3d9…d2151`, bundle `assets/index-JmSkU7pM.js`, 23 files)
+was uploaded to the Pages project and exercised on https://vaultbrief-bby.pages.dev under the
+site's own CSP:
+
+| Check | Observed |
+| --- | --- |
+| Banner | `LIVE · Firebase AI Logic` — no demo/simulated banner. |
+| Newsletter | `Cloud · Gemini`, 9,051 ms, `gemini-3.5-flash-lite`, masked copy, receipt `a3536daa-faf1-4a00`, sent 4,128 / stayed local 29, tokens 1202/258, `simulated: false`, sealed `seq 1`, key `ed411c61cbb43c30`. |
+| Receipt | **Verify 7/7** — shape, integrity block, digest, document fingerprint, ECDSA signature, masked-run consistency, pass count. |
+
+Evidence: `evidence/live-pages-fixed-newsletter-2026-11-25.png`,
+`evidence/live-pages-fixed-verify-7of7-2026-11-25.png`.
+
 ---
 
 ## Residual risks (stated, not hidden)

@@ -24,9 +24,10 @@ Live wiring against a real Firebase project, and the SDK bug the live run expose
   the Gemini Developer API, App Check through Fraud Defense (reCAPTCHA Enterprise) enforced
   for AI Logic, anonymous sign-in with 30-day auto-cleanup, Firestore in `asia-northeast3`
   with `firestore.rules` published, and the Remote Config template imported.
-- `evidence/live-firebase-*.png` and `evidence/firestore-receipt-mirror-2026-11-25.png`:
-  the live run, the sealed receipts (7/7 and 8/8 with the ledger chain) and the mirrored
-  Firestore document.
+- `evidence/live-firebase-*.png`, `evidence/live-pages-fixed-*.png` and
+  `evidence/firestore-receipt-mirror-2026-11-25.png`: the live run on both hosts, the sealed
+  receipts (7/7 and 8/8 with the ledger chain), the Pages deployment of the submitted
+  `dist.zip` and the mirrored Firestore document.
 
 ## 1.2.0 — 2026-11-25
 
